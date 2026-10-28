@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
+import { nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import Statistics from '@/components/word/Statistics.vue'
 import { emitter, EventKey, useEvents } from '@/core/utils/eventBus.ts'
 import { useSettingStore } from '@/core/stores/setting.ts'
@@ -35,7 +35,6 @@ import { createStudyTask } from '@/core/composables/practice-words/study-task.ts
 import PrevAndNextWord from '@/components/word/PrevAndNextWord.vue'
 import type { PracticeNotifier } from '@/core/composables/practice-words/practice-flow-types.ts'
 import { usePracticeWordSession } from '@/core/composables/practice-words/usePracticeWordSession.ts'
-import { useWordDetailExpand } from '@/core/composables/practice-words/useWordDetailExpand.ts'
 import { useMediaQuery } from '@vueuse/core'
 import { useVirtualKeyboard } from '@/core/composables/useVirtualKeyboard.ts'
 
@@ -92,23 +91,14 @@ const { nav } = session
 const { activeFlowConfig, activeCursor, currentPhase, currentPracticeType, currentPhaseKey } = nav
 const { effective, toggleDictation, toggleTranslate } = session
 
-const { expanded: detailExpanded } = useWordDetailExpand()
 const isNarrowScreen = useMediaQuery('(max-width: 768px)')
 const { keyboardOpen } = useVirtualKeyboard()
-// 手机端：未展开例句/释义时锁住内容区滚动，避免误滑
-const contentLocked = computed(() => isNarrowScreen.value && !detailExpanded.value)
 
 // 键盘弹出 / 切词时都确保内容停在顶部，否则单词会被顶出视野
 watch(keyboardOpen, open => {
   if (!open) return
   document.getElementById('PracticeArea')?.scrollTo({ top: 0, behavior: 'auto' })
   if (typeof window !== 'undefined' && window.scrollY !== 0) window.scrollTo(0, 0)
-})
-
-// 收起时把内容滚回顶部，避免残留滚动位置导致单词被顶出视野
-watch(detailExpanded, expanded => {
-  if (expanded) return
-  document.getElementById('PracticeArea')?.scrollTo({ top: 0, behavior: 'auto' })
 })
 
 const { bumpActivity, handleResumeTimer, startTimer, stopTimer } = usePracticeIdleTimer({
@@ -533,7 +523,7 @@ useEvents([
 </script>
 
 <template>
-  <PracticeLayout v-loading="loading" :locked="contentLocked">
+  <PracticeLayout v-loading="loading">
     <template v-slot:practice>
       <div
         class="practice-word"

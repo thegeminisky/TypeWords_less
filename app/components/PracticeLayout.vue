@@ -3,10 +3,7 @@ import { computed } from 'vue'
 import { useMediaQuery } from '@vueuse/core'
 import { useVirtualKeyboard } from '@/core/composables/useVirtualKeyboard.ts'
 
-defineProps<{
-  /** 手机端未展开详情时锁定内容区滚动 */
-  locked?: boolean
-}>()
+defineProps<{}>()
 
 const isNarrowScreen = useMediaQuery('(max-width: 768px)')
 const { viewportHeight } = useVirtualKeyboard()
@@ -24,7 +21,7 @@ const rootStyle = computed(() => {
 
 <template>
   <div class="practice-layout" :style="rootStyle">
-    <div class="wrap" id="PracticeArea" :class="{ locked: locked }">
+    <div class="wrap" id="PracticeArea">
       <slot name="practice"></slot>
     </div>
     <div class="footer-wrap">
@@ -72,10 +69,6 @@ const rootStyle = computed(() => {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
-
-    &.locked {
-      overflow: hidden;
-    }
   }
 
   .footer-wrap {

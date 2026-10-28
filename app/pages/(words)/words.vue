@@ -6,6 +6,7 @@ import {
   BaseIcon,
   BasePage,
   Calendar,
+  Checkbox,
   DeleteIcon,
   Dialog,
   OptionButton,
@@ -32,7 +33,6 @@ import {
 import type { DictResource, Statistics } from '@/core/types/types.ts'
 import { onMounted, onUnmounted, watch } from 'vue'
 import { useRuntimeStore } from '@/core/stores/runtime.ts'
-import Book from '@/components/Book.vue'
 import { getDefaultDict } from '@/core/types/func.ts'
 import PracticeSettingDialog from '@/components/word/PracticeSettingDialog.vue'
 import ChangeLastPracticeIndexDialog from '@/components/word/ChangeLastPracticeIndexDialog.vue'
@@ -535,8 +535,6 @@ async function saveLastPracticeIndex(e) {
   Toast.success('修改成功')
 }
 
-const { data: recommendDictList, isFetching } = useFetch(resourceWrap(DICT_LIST.WORD.RECOMMENDED)).json()
-
 const systemPracticeText = $computed(() => {
   if (settingStore.wordPracticeMode === WordPracticeMode.Free) {
     return '开始学习'
@@ -630,25 +628,21 @@ onUnmounted(() => {
         </div>
       </div>
       <div class="flex-1 mt-4 md:mt-0" :class="!store.sdict.id && 'opacity-30 cursor-not-allowed'">
-        <div class="flex justify-between">
+        <div class="flex flex-wrap justify-between gap-x-4 gap-y-2">
           <div class="flex items-center gap-2">
             <div class="p-2 center rounded-full bg-white">
               <IconFluentStar20Filled class="text-lg color-amber" />
             </div>
-            <div class="text-xl font-bold">
-              {{ isSaveData ? $t('last_task') : $t('today_task') }}
-            </div>
             <span class="color-link cursor-pointer" v-if="store.sdict.id" @click="showPracticeWordListDialog = true">{{
               $t('word_list')
             }}</span>
-            <!--            <span class="color-link cursor-pointer ml-2" @click="nav('/practice-flow-editor', {})">流程编排</span>-->
           </div>
-          <div class="flex gap-1 items-center" v-if="store.sdict.id">
-            {{ $t('daily_goal') }}
-            <div style="color: #ac6ed1" class="bg-third px-2 h-10 flex center text-2xl rounded">
+          <div class="flex items-center gap-2 whitespace-nowrap" v-if="store.sdict.id">
+            <span>{{ $t('daily_goal') }}</span>
+            <span style="color: #ac6ed1" class="bg-third px-2 h-9 flex items-center text-xl rounded">
               {{ store.sdict.id ? store.sdict.perDayStudyNumber : 0 }}
-            </div>
-            {{ $t('words_count') }}
+            </span>
+            <span>{{ $t('words_count') }}</span>
             <PopConfirm
               :disabled="!isSaveData"
               title="当前存在未完成的学习任务，修改会重新生成学习任务，是否继续？"
@@ -773,7 +767,7 @@ onUnmounted(() => {
     <div class="card flex flex-col md:flex-row gap-4 xl:gap-20 p-4 md:p-6">
       <div class="flex-1 flex flex-col gap-3 min-w-0">
         <div class="title">统计</div>
-        <div class="flex gap-3 items-center w-full">
+        <div class="flex gap-3 items-stretch w-full">
           <div class="stat2">
             <div class="num">{{ todayTotalSpend }}</div>
             <div class="txt">{{ $t('today_study_time') }}</div>
@@ -788,7 +782,7 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <div class="shrink-0 flex items-center">
+      <div class="shrink-0 flex items-center justify-center w-full md:w-auto">
         <Calendar
           :highlighted-dates="calendarHighlightDates"
           @select-date="onSelectCalendarDate"
@@ -825,39 +819,31 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <div class="flex gap-4 flex-wrap mt-4">
-        <Book
-          :is-add="false"
-          quantifier="词"
-          :item="item"
-          :checked="selectIds.includes(item.id)"
-          @check="() => toggleSelect(item)"
-          :show-checkbox="isManageDict && j >= 3"
+      <div class="dict-list mt-4">
+        <div
+          class="dict-row"
+          :class="{ 'dict-row--checked': selectIds.includes(item.id) }"
           v-for="(item, j) in store.word.bookList"
-          @click="goDictDetail(item)"
-        />
-        <Book :is-add="true" @click="router.push('/dict-list')" />
-      </div>
-    </div>
-
-    <div class="card flex flex-col overflow-hidden" v-loading="isFetching">
-      <div class="flex justify-between">
-        <div class="title">{{ $t('recommend') }}</div>
-        <div class="flex gap-4 items-center">
-          <div class="color-link cursor-pointer" @click="router.push('/dict-list')">{{ $t('more') }}</div>
+          :key="item.id"
+          @click="isManageDict && j >= 3 ? toggleSelect(item) : goDictDetail(item)"
+        >
+          <div class="flex items-center gap-3 min-w-0">
+            <Checkbox
+              v-if="isManageDict && j >= 3"
+              :model-value="selectIds.includes(item.id)"
+              @click.stop
+              @change="toggleSelect(item)"
+            />
+            <span class="truncate">{{ item.name }}</span>
+          </div>
+          <div class="dict-counts">{{ item.lastLearnIndex }} / {{ item.length }} 词</div>
+        </div>
+        <div class="dict-row dict-row--add" @click="router.push('/dict-list')">
+          <span class="color-link">＋ {{ $t('select_dict') }}</span>
         </div>
       </div>
-
-      <div class="flex gap-4 flex-wrap mt-4 min-h-50">
-        <Book
-          :is-add="false"
-          quantifier="词"
-          :item="item as any"
-          v-for="(item, j) in recommendDictList"
-          @click="goDictDetail(item as any)"
-        />
-      </div>
     </div>
+
   </BasePage>
 
   <PracticeSettingDialog
@@ -923,12 +909,72 @@ onUnmounted(() => {
 }
 
 .stat2 {
-  @extend .stat;
-  @apply py-4 flex-1;
-  width: unset;
+  flex: 1 1 0%;
+  min-width: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  border-radius: 0.75rem;
+  padding: 1rem 0.5rem;
+  background: var(--bg-history);
+  border: 1px solid gainsboro;
 
   .num {
-    @apply text-2xl break-keep;
+    color: #409eff;
+    font-size: 1.25rem;
+    font-weight: 700;
+    line-height: 1.4;
+    text-align: center;
+    word-break: break-all;
+  }
+
+  .txt {
+    color: var(--color-font-3);
+    font-size: 0.75rem;
+    text-align: center;
+  }
+}
+
+.dict-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.dict-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-line);
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover {
+    background: var(--color-fourth);
+  }
+
+  &--checked {
+    background: var(--bg-fifth, var(--color-fourth));
+    border-color: var(--color-select-bg, #409eff);
+  }
+
+  &--add {
+    justify-content: center;
+    border-style: dashed;
+    color: var(--color-font-3);
+  }
+
+  .dict-counts {
+    color: var(--color-font-3);
+    font-size: 0.85rem;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 }
 </style>
