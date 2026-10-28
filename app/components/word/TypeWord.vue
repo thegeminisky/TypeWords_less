@@ -19,7 +19,11 @@ import { ShortcutKey, WordPlayTrigger, WordPracticeType } from '@/core/types/enu
 import { useBaseStore } from '@/core/stores/base.ts'
 import { useSettingStore } from '@/core/stores/setting.ts'
 import { usePlayWordAudio } from '@/core/hooks/sound.ts'
-import { useInjectedDisplayPolicy } from '@/core/composables/practice-words/usePracticeDisplayPolicy.ts'
+import {
+  useInjectedDisplayActions,
+  useInjectedDisplayPolicy,
+} from '@/core/composables/practice-words/usePracticeDisplayPolicy.ts'
+import { useMediaQuery } from '@vueuse/core'
 import { EventKey, useEvents } from '@/core/utils/eventBus.ts'
 import { computed, ref, watch } from 'vue'
 import WordLookupPopover from '@/components/word/WordLookupPopover.vue'
@@ -91,6 +95,9 @@ const localReveal = computed(() => ({
   showWordResult,
 }))
 const effective = useInjectedDisplayPolicy(localReveal)
+const displayActions = useInjectedDisplayActions()
+// 手机端不展示「快捷键显示单词信息」浮层，避免遮挡单词
+const isNarrowScreen = useMediaQuery('(max-width: 768px)')
 
 function playWord(trigger: WordPlayTrigger) {
   if (trigger === WordPlayTrigger.Manual || settingStore.wordSound) typeWordController.playWord(trigger)
@@ -249,10 +256,8 @@ const notice = $computed(() => {
         : $t('press_delete_reinput')
       : '按空格键完成默写'
     show = true
-  } else {
-    text = '输入完成后按空格键继续'
-    show = true
   }
+  // 跟写 / 拼写模式不加提示框：输入完按空格是默认行为，提示反而干扰视线
   return { show, text }
 })
 
@@ -339,7 +344,10 @@ useEvents([
       </div>
 
       <!-- 单词键入区 -->
-      <Tooltip :title="`快捷键(${settingStore.shortcutKeyMap[ShortcutKey.ShowWord]})显示单词信息`">
+      <Tooltip
+        :title="`快捷键(${settingStore.shortcutKeyMap[ShortcutKey.ShowWord]})显示单词信息`"
+        :disabled="isNarrowScreen"
+      >
         <div
           id="word-wrap"
           ref="word-wrap"
@@ -400,6 +408,21 @@ useEvents([
         </span>
         <BaseIcon @click="emit('skip')" :title="`${$t('skip_word')}(${settingStore.shortcutKeyMap[ShortcutKey.Next]})`">
           <IconFluentArrowBounce20Regular class="transform-rotate-180" />
+        </BaseIcon>
+        <span class="divider"></span>
+        <BaseIcon
+          :title="`${$t('toggle_dictation_mode')}(${settingStore.shortcutKeyMap[ShortcutKey.ToggleDictation]})`"
+          @click="displayActions.toggleDictation()"
+        >
+          <IconFluentEyeOff16Regular v-if="effective.isWordMasked" />
+          <IconFluentEye16Regular v-else />
+        </BaseIcon>
+        <BaseIcon
+          :title="`${$t('toggle_translation')}(${settingStore.shortcutKeyMap[ShortcutKey.ToggleShowTranslate]})`"
+          @click="displayActions.toggleTranslate()"
+        >
+          <IconPhTranslate v-if="effective.isShowTranslate" />
+          <IconFluentTranslateOff16Regular v-else />
         </BaseIcon>
       </div>
 
@@ -506,6 +529,13 @@ useEvents([
   .label {
     width: 6rem;
     flex-shrink: 0;
+  }
+
+  .divider {
+    width: 1px;
+    align-self: stretch;
+    margin: 0.2rem 0;
+    background: var(--color-item-border);
   }
 
   .note-content {

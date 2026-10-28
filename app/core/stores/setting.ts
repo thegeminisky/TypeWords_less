@@ -44,8 +44,6 @@ export interface SettingState {
     wordForeignFontSize: number
     wordTranslateFontSize: number
   }
-  showToolbar: boolean //收起/展开工具栏
-  showPanel: boolean // 收起/展开面板
   sideExpand: boolean // 收起/展开左侧侧边栏
   theme: string
   shortcutKeyMap: Record<string, string>
@@ -119,8 +117,6 @@ export const getDefaultSettingState = (): SettingState => ({
     wordForeignFontSize: 48,
     wordTranslateFontSize: 20,
   },
-  showToolbar: true,
-  showPanel: true,
   sideExpand: true,
   theme: 'auto',
   shortcutKeyMap: cloneDeep(DefaultShortcutKeyMap),

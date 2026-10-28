@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import Statistics from '@/components/word/Statistics.vue'
 import { emitter, EventKey, useEvents } from '@/core/utils/eventBus.ts'
 import { useSettingStore } from '@/core/stores/setting.ts'
@@ -9,19 +9,15 @@ import { useStartKeyboardEventListener } from '@/core/hooks/event.ts'
 import useTheme from '@/core/hooks/theme.ts'
 import { _getDictDataByUrl, resourceWrap, shuffle, throttle } from '@/core/utils'
 import { useRoute, useRouter } from 'vue-router'
-import Footer from '@/components/word/Footer.vue'
-import Panel from '@/components/Panel.vue'
+import ToolIsland from '@/components/word/ToolIsland.vue'
 import { BaseIcon, Dialog, Toast, ToastComponent } from '@/base'
-import WordList from '@/components/list/WordList.vue'
 import TypeWord from '@/components/word/TypeWord.vue'
-import Empty from '@/components/Empty.vue'
 import { useBaseStore } from '@/core/stores/base.ts'
 import { usePracticeStore } from '@/core/stores/practice.ts'
 import { getDefaultDict, getDefaultWord } from '@/core/types/func.ts'
 import PracticeLayout from '@/components/PracticeLayout.vue'
 import PracticeOnboardingHost from '@/components/word/PracticeOnboardingHost.vue'
 import { DICT_LIST } from '@/core/config/env.ts'
-import GroupList from '@/components/word/GroupList.vue'
 import {
   getDefaultPracticeData,
   type PracticeData,
@@ -39,6 +35,8 @@ import { createStudyTask } from '@/core/composables/practice-words/study-task.ts
 import PrevAndNextWord from '@/components/word/PrevAndNextWord.vue'
 import type { PracticeNotifier } from '@/core/composables/practice-words/practice-flow-types.ts'
 import { usePracticeWordSession } from '@/core/composables/practice-words/usePracticeWordSession.ts'
+import { useWordDetailExpand } from '@/core/composables/practice-words/useWordDetailExpand.ts'
+import { useMediaQuery } from '@vueuse/core'
 
 const settingStore = useSettingStore()
 const runtimeStore = useRuntimeStore()
@@ -92,6 +90,17 @@ const session = usePracticeWordSession({
 const { nav } = session
 const { activeFlowConfig, activeCursor, currentPhase, currentPracticeType, currentPhaseKey } = nav
 const { effective, toggleDictation, toggleTranslate } = session
+
+const { expanded: detailExpanded } = useWordDetailExpand()
+const isNarrowScreen = useMediaQuery('(max-width: 768px)')
+// 手机端：未展开例句/释义时锁住内容区滚动，避免误滑
+const contentLocked = computed(() => isNarrowScreen.value && !detailExpanded.value)
+
+// 收起时把内容滚回顶部，避免残留滚动位置导致单词被顶出视野
+watch(detailExpanded, expanded => {
+  if (expanded) return
+  document.getElementById('PracticeArea')?.scrollTo({ top: 0, behavior: 'auto' })
+})
 
 const { bumpActivity, handleResumeTimer, startTimer, stopTimer } = usePracticeIdleTimer({
   isFocus,
@@ -447,11 +456,6 @@ function savePracticeData() {
   }, 500)
 }
 
-function toggleConciseMode() {
-  settingStore.showToolbar = !settingStore.showToolbar
-  settingStore.showPanel = settingStore.showToolbar
-}
-
 async function repeat() {
   const previousWord = word
   console.log('重学一遍')
@@ -469,15 +473,6 @@ async function continueStudy() {
     return
   }
   await initData(temp)
-  resetSameWordAfterViewUpdate(previousWord)
-}
-
-async function jumpToGroup(group: number) {
-  const previousWord = word
-  window?.umami?.track('jumpToGroup')
-  wordPersistence.clear()
-  console.log('没学完，强行跳过', group)
-  await initData(session.createTaskFromGroup(group))
   resetSameWordAfterViewUpdate(previousWord)
 }
 
@@ -521,19 +516,15 @@ useEvents([
   [ShortcutKey.ToggleSimple, session.toggleWordSimpleForCurrent],
   [ShortcutKey.RepeatChapter, repeat],
   [ShortcutKey.NextChapter, continueStudy],
-  [ShortcutKey.NextStep, nav.skipStep],
   [ShortcutKey.ToggleShowTranslate, toggleTranslate],
   [ShortcutKey.ToggleDictation, toggleDictation],
   [ShortcutKey.ToggleTheme, toggleTheme],
-  [ShortcutKey.ToggleConciseMode, toggleConciseMode],
-  [ShortcutKey.ToggleToolbar, () => (settingStore.showToolbar = !settingStore.showToolbar)],
-  [ShortcutKey.TogglePanel, () => (settingStore.showPanel = !settingStore.showPanel)],
   [ShortcutKey.RandomWrite, randomWrite],
 ])
 </script>
 
 <template>
-  <PracticeLayout v-loading="loading" panelLeft="var(--word-panel-margin-left)">
+  <PracticeLayout v-loading="loading" :locked="contentLocked">
     <template v-slot:practice>
       <div
         class="practice-word"
@@ -583,49 +574,12 @@ useEvents([
         </div>
       </div>
     </template>
-    <template v-slot:panel>
-      <Panel>
-        <template v-slot:title>
-          <div class="center gap-1">
-            <span>{{ store.sdict.name }}</span>
-
-            <GroupList
-              @click="jumpToGroup"
-              v-if="taskWords.new.length && settingStore.wordPracticeMode !== WordPracticeMode.Shuffle"
-            />
-            <BaseIcon
-              v-if="taskWords.new.length"
-              @click="continueStudy"
-              :title="`下一组(${settingStore.shortcutKeyMap[ShortcutKey.NextChapter]})`"
-            >
-              <IconFluentArrowRight16Regular class="arrow" width="22" />
-            </BaseIcon>
-
-            <BaseIcon @click="randomWrite" :title="`随机默写(${settingStore.shortcutKeyMap[ShortcutKey.RandomWrite]})`">
-              <IconFluentArrowShuffle16Regular class="arrow" width="22" />
-            </BaseIcon>
-          </div>
-        </template>
-        <div class="panel-page-item pl-4">
-          <WordList
-            v-if="data.words.length"
-            :is-active="settingStore.showPanel"
-            :static="false"
-            :show-word="!effective.isWordMasked"
-            :show-translate="effective.isShowTranslate"
-            :list="data.words"
-            :activeIndex="data.index"
-            :excludeWords="data.excludeWords"
-            :exclude-dict-id="store.sdict.id ? String(store.sdict.id) : undefined"
-            @click="(val: any) => (data.index = val.index)"
-          >
-          </WordList>
-          <Empty v-else />
-        </div>
-      </Panel>
-    </template>
     <template v-slot:footer>
-      <Footer @skipStep="nav.skipStep" />
+      <ToolIsland
+        :hasNextGroup="taskWords.new.length > 0 && settingStore.wordPracticeMode !== WordPracticeMode.Shuffle"
+        @nextGroup="continueStudy"
+        @randomWrite="randomWrite"
+      />
     </template>
   </PracticeLayout>
   <Statistics v-model="isComplete" :loading="settling" />

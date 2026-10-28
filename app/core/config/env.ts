@@ -92,14 +92,10 @@ export const LIB_JS_URL = {
 }
 export const PronunciationApi = 'https://dict.youdao.com/dictvoice?audio='
 export const DefaultShortcutKeyMap = {
-  [ShortcutKey.EditArticle]: 'Ctrl+E',
   [ShortcutKey.PlayWordPronunciation]: 'Ctrl+P',
   [ShortcutKey.ToggleShowTranslate]: 'Ctrl+Z',
   [ShortcutKey.ToggleDictation]: 'Ctrl+I',
   [ShortcutKey.ToggleTheme]: 'Ctrl+Q',
-  [ShortcutKey.ToggleConciseMode]: 'Ctrl+M',
-  [ShortcutKey.ToggleToolbar]: 'Ctrl+B',
-  [ShortcutKey.TogglePanel]: 'Ctrl+L',
   [ShortcutKey.RandomWrite]: 'Ctrl+R',
 
   [ShortcutKey.Previous]: 'Ctrl+⬅',
@@ -112,7 +108,6 @@ export const DefaultShortcutKeyMap = {
   [ShortcutKey.ToggleSimple]: '`',
   [ShortcutKey.ToggleCollect]: 'Enter',
   [ShortcutKey.CollectToDict]: 'Shift+Enter',
-  [ShortcutKey.NextStep]: 'Shift+➡',
   [ShortcutKey.RepeatChapter]: 'Ctrl+Enter',
   [ShortcutKey.DictationChapter]: 'Alt+Enter',
   [ShortcutKey.KnowWord]: '1',

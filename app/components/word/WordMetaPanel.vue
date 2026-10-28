@@ -14,7 +14,7 @@ import { getDefaultWord } from '@/core/types/func.ts'
 import { useSettingStore } from '@/core/stores/setting.ts'
 import ClickableEnglishText from '@/components/word/ClickableEnglishText.vue'
 import ClickableWord from '@/components/word/ClickableWord.vue'
-import { Toast, VolumeIcon } from '@/base'
+import { VolumeIcon } from '@/base'
 import { useI18n } from 'vue-i18n'
 import TranslationList from '@/components/word/TranslationList.vue'
 import TypingSentence from '~/components/practice-sentences/TypingSentence.vue'
@@ -24,8 +24,8 @@ import { SENTENCE_PLAY_SHORTCUT_KEYS, ShortcutKey } from '@/core'
 import { WordPracticeType } from '@/core/types/enum.ts'
 import { computed } from 'vue'
 import { watch } from 'vue'
-import { useRouter } from 'vue-router'
-import { getBrowserKey, useTTsPlayAudio } from '@/core/hooks/sound.ts'
+import { useTTsPlayAudio } from '@/core/hooks/sound.ts'
+import { useWordDetailExpand } from '@/core/composables/practice-words/useWordDetailExpand.ts'
 
 const { t: $t } = useI18n()
 
@@ -44,10 +44,8 @@ const emit = defineEmits<{
 }>()
 
 const settingStore = useSettingStore()
-const router = useRouter()
 const ttsPlayAudio = useTTsPlayAudio()
 let highlightedSentenceIndex = $ref(-1)
-let ttsVoiceHintShown = false
 const showDetails = computed(
   () =>
     props.effective.revealAll ||
@@ -62,6 +60,36 @@ const showEtymology = computed(
       props.effective.isShowTranslate)
 )
 let activeSentenceIndex = $ref(-1)
+
+// 例句默认只展示第一条，其余内容折叠
+const { expanded } = useWordDetailExpand()
+const allSentences = computed(() => props.word.sentences ?? [])
+const visibleSentences = computed(() => (expanded.value ? allSentences.value : allSentences.value.slice(0, 1)))
+const hiddenSentenceCount = computed(() => Math.max(allSentences.value.length - 1, 0))
+
+const hasExtraSections = computed(() => {
+  if (props.word.phrases?.length) return true
+  if (props.word.synos?.length) return true
+  if (settingStore.showEtymologyAndRelWords) {
+    if (props.word.etymology?.length) return true
+    if (props.word.relWords?.root) return true
+  }
+  return false
+})
+
+const canExpand = computed(() => hiddenSentenceCount.value > 0 || hasExtraSections.value)
+
+/** 展开按钮上的补充说明，例如「还有 2 条例句 · 短语 · 近义词」 */
+const expandHint = computed(() => {
+  const parts: string[] = []
+  if (hiddenSentenceCount.value > 0) parts.push(`${hiddenSentenceCount.value} 条例句`)
+  if (props.word.phrases?.length) parts.push('短语')
+  if (props.word.synos?.length) parts.push('近义词')
+  if (settingStore.showEtymologyAndRelWords && (props.word.etymology?.length || props.word.relWords?.root)) {
+    parts.push('词源')
+  }
+  return parts.join(' · ')
+})
 let sentenceRefMap = new Map()
 function setRef(index, el) {
   if (el) {
@@ -80,25 +108,8 @@ function noticePlaySentence(index: number) {
 }
 
 function playTtsWithGuide(text: string, onEnd?: () => void) {
-  if (!ttsVoiceHintShown) {
-    const hasVoice = settingStore.ttsVoiceMap?.some(v => v.key === getBrowserKey() && v.voice)
-    if (!hasVoice) {
-      ttsVoiceHintShown = true
-      const ins = Toast.warning(
-        '例句默认使用浏览器内置 TTS 发音，若无声请前往「设置 → 音效设置 → TTS 声色」选择可用声色',
-        {
-          duration: 10000,
-          action: {
-            text: '设置',
-            onClick: () => {
-              router.push('/setting?index=4')
-              ins.close()
-            },
-          },
-        }
-      )
-    }
-  }
+  // 不再弹「请去设置音色」的大提示框：手机上它会盖住单词。
+  // 音色在「设置 → 音效设置」里配置，这里静默播放即可。
   ttsPlayAudio(text, {
     onEnd,
     volume: settingStore.sentenceSoundVolume / 100,
@@ -124,8 +135,14 @@ watch(
   () => {
     highlightedSentenceIndex = -1
     sentenceRefMap = new Map<any, any>()
+    expanded.value = false
   }
 )
+
+// 例句跟打进行到第二条时自动展开，否则用户看不到正在跟打的句子
+watch(activeSentenceIndex, index => {
+  if (index > 0) expanded.value = true
+})
 
 function onCompleteSentence(text: string) {
   //简单比对，句子里面是否有当前单词，没有则为错
@@ -164,7 +181,7 @@ defineExpose({ startPracticeSentence, playSentence })
           :class="{
             'sentence-highlight': highlightedSentenceIndex === j || activeSentenceIndex === j,
           }"
-          v-for="(i, j) in word.sentences"
+          v-for="(i, j) in visibleSentences"
           :key="i.c"
         >
           <TypingSentence
@@ -183,8 +200,17 @@ defineExpose({ startPracticeSentence, playSentence })
       </div>
     </template>
 
+    <!-- 展开 / 收起：默认只显示第一条例句，其余内容按需展开 -->
+    <div class="expand-row" v-if="canExpand && showDetails">
+      <button class="expand-btn" type="button" @click="expanded = !expanded">
+        <span>{{ expanded ? '收起' : '展开全部' }}</span>
+        <span class="hint" v-if="!expanded && expandHint">（{{ expandHint }}）</span>
+        <IconFluentChevronDown20Regular class="chevron" :class="{ up: expanded }" />
+      </button>
+    </div>
+
     <!-- 短语列表 -->
-    <template v-if="word?.phrases?.length">
+    <template v-if="expanded && word?.phrases?.length">
       <div v-opacity="showDetails">
         <div class="line-white my-2"></div>
         <div class="flex">
@@ -205,7 +231,7 @@ defineExpose({ startPracticeSentence, playSentence })
     </template>
 
     <!-- 近义词 -->
-    <template v-if="word?.synos?.length">
+    <template v-if="expanded && word?.synos?.length">
       <div v-opacity="showDetails">
         <div class="line-white my-2"></div>
         <div class="flex">
@@ -231,7 +257,7 @@ defineExpose({ startPracticeSentence, playSentence })
     </template>
 
     <!-- 词源 / 关联词 -->
-    <template v-if="settingStore.showEtymologyAndRelWords">
+    <template v-if="expanded && settingStore.showEtymologyAndRelWords">
       <template v-if="word?.etymology?.length">
         <div v-opacity="showEtymology">
           <div class="line-white my-2"></div>
@@ -277,6 +303,50 @@ defineExpose({ startPracticeSentence, playSentence })
 <style scoped lang="scss">
 .word-meta {
   width: 100%;
+
+  .expand-row {
+    display: flex;
+    justify-content: center;
+    margin: 0.6rem 0 0.2rem;
+  }
+
+  .expand-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.7rem;
+    border-radius: 999px;
+    min-height: 2rem;
+    border: 1px solid var(--color-item-border);
+    background: transparent;
+    color: var(--color-main-text);
+    opacity: 0.62;
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition:
+      opacity 0.2s,
+      border-color 0.2s,
+      background 0.2s;
+
+    .hint {
+      opacity: 0.8;
+    }
+
+    .chevron {
+      transition: transform 0.2s;
+      font-size: 0.9rem;
+
+      &.up {
+        transform: rotate(180deg);
+      }
+    }
+
+    &:hover {
+      opacity: 1;
+      border-color: var(--color-main-text);
+      background: var(--color-fourth);
+    }
+  }
 
   .label {
     width: 7rem;
