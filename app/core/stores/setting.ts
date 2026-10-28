@@ -64,6 +64,17 @@ export interface SettingState {
   practiceSentence: boolean // 练习例句
   autoPlayFirstSentence: boolean // 单词发音结束后自动播放首条例句
 
+  // 练习页上的功能按钮开关（默认全部关闭，界面尽量干净）
+  showBtnDictation: boolean // 开关默写模式
+  showBtnTranslate: boolean // 显示/隐藏释义
+  showBtnCollect: boolean // 收藏单词
+  showBtnCollectToDict: boolean // 收藏到自建词典
+  showBtnSkip: boolean // 跳过当前单词
+  showBtnMarkMastered: boolean // 标记已掌握
+  showBtnNote: boolean // 添加笔记
+  showBtnNextGroup: boolean // 下一组
+  showBtnRandomWrite: boolean // 随机默写
+
   fsrsEasyLimit: number // 小于等于fsrsEasyLimit的卡片会评估为Easy
   fsrsGoodLimit: number // 小于等于fsrsEasyLimit且小于等于fsrsHardLimit的卡片会评估为Good
   fsrsHardLimit: number // 小于等于fsrsHardLimit的卡片会评估为Hard
@@ -136,6 +147,16 @@ export const getDefaultSettingState = (): SettingState => ({
   ignoreSymbol: true,
   practiceSentence: false,
   autoPlayFirstSentence: true,
+
+  showBtnDictation: false,
+  showBtnTranslate: false,
+  showBtnCollect: false,
+  showBtnCollectToDict: false,
+  showBtnSkip: false,
+  showBtnMarkMastered: false,
+  showBtnNote: false,
+  showBtnNextGroup: false,
+  showBtnRandomWrite: false,
   fsrsEasyLimit: 0,
   fsrsGoodLimit: 3,
   fsrsHardLimit: 6,

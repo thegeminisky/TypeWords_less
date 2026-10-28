@@ -293,6 +293,31 @@ function openCollectPicker(e: MouseEvent) {
   })
 }
 
+// 功能栏按钮全部由「通用设置 → 练习页按钮」控制，默认全关
+const showActionRow = $computed(
+  () =>
+    settingStore.showBtnMarkMastered ||
+    settingStore.showBtnNote ||
+    settingStore.showBtnCollect ||
+    settingStore.showBtnCollectToDict ||
+    settingStore.showBtnSkip ||
+    settingStore.showBtnDictation ||
+    settingStore.showBtnTranslate
+)
+
+const showLeftGroup = $computed(
+  () =>
+    settingStore.showBtnMarkMastered ||
+    settingStore.showBtnNote ||
+    settingStore.showBtnCollect ||
+    settingStore.showBtnCollectToDict ||
+    settingStore.showBtnSkip
+)
+
+const showModeGroup = $computed(
+  () => !!(settingStore.showBtnDictation || settingStore.showBtnTranslate) && showLeftGroup
+)
+
 const isCollect = $computed(() => isWordCollect(props.word))
 const isSimple = $computed(() => isWordSimple(props.word))
 const showNote = $computed(() => {
@@ -372,9 +397,10 @@ useEvents([
         </div>
       </Tooltip>
 
-      <!-- 操作按钮行 -->
-      <div class="mt-1 flex gap-4">
+      <!-- 操作按钮行（默认隐藏，可在「通用设置 → 练习页按钮」里逐项开启） -->
+      <div class="mt-1 flex gap-4" v-if="showActionRow">
         <BaseIcon
+          v-if="settingStore.showBtnMarkMastered"
           @click="emit('toggleSimple')"
           :title="
             (!isSimple ? $t('mark_mastered') : $t('unmark_mastered')) +
@@ -384,10 +410,11 @@ useEvents([
           <IconFluentCheckmarkCircle16Regular v-if="!isSimple" />
           <IconFluentCheckmarkCircle16Filled v-else />
         </BaseIcon>
-        <BaseIcon @click="editNote" :title="editingNote ? '完成编辑笔记' : '编辑笔记'">
+        <BaseIcon v-if="settingStore.showBtnNote" @click="editNote" :title="editingNote ? '完成编辑笔记' : '编辑笔记'">
           <IconFluentClipboardTextEdit20Regular />
         </BaseIcon>
         <BaseIcon
+          v-if="settingStore.showBtnCollect"
           @click="collect"
           :title="
             (!isCollect ? $t('collect') : $t('uncollect')) +
@@ -397,7 +424,7 @@ useEvents([
           <IconFluentStar20Regular v-if="!isCollect" />
           <IconFluentStar20Filled v-else />
         </BaseIcon>
-        <span ref="collectAnchorRef" class="inline-flex">
+        <span ref="collectAnchorRef" class="inline-flex" v-if="settingStore.showBtnCollectToDict">
           <BaseIcon
             class="word-collect-anchor"
             @click="openCollectPicker"
@@ -406,11 +433,16 @@ useEvents([
             <IconFluentStarAdd16Regular />
           </BaseIcon>
         </span>
-        <BaseIcon @click="emit('skip')" :title="`${$t('skip_word')}(${settingStore.shortcutKeyMap[ShortcutKey.Next]})`">
+        <BaseIcon
+          v-if="settingStore.showBtnSkip"
+          @click="emit('skip')"
+          :title="`${$t('skip_word')}(${settingStore.shortcutKeyMap[ShortcutKey.Next]})`"
+        >
           <IconFluentArrowBounce20Regular class="transform-rotate-180" />
         </BaseIcon>
-        <span class="divider"></span>
+        <span class="divider" v-if="showModeGroup"></span>
         <BaseIcon
+          v-if="settingStore.showBtnDictation"
           :title="`${$t('toggle_dictation_mode')}(${settingStore.shortcutKeyMap[ShortcutKey.ToggleDictation]})`"
           @click="displayActions.toggleDictation()"
         >
@@ -418,6 +450,7 @@ useEvents([
           <IconFluentEye16Regular v-else />
         </BaseIcon>
         <BaseIcon
+          v-if="settingStore.showBtnTranslate"
           :title="`${$t('toggle_translation')}(${settingStore.shortcutKeyMap[ShortcutKey.ToggleShowTranslate]})`"
           @click="displayActions.toggleTranslate()"
         >

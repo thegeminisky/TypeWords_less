@@ -98,9 +98,6 @@ const { keyboardOpen } = useVirtualKeyboard()
 // 手机端：未展开例句/释义时锁住内容区滚动，避免误滑
 const contentLocked = computed(() => isNarrowScreen.value && !detailExpanded.value)
 
-// 手机弹出键盘时隐藏工具岛，把可视高度让给单词区
-const showIsland = computed(() => !(isNarrowScreen.value && keyboardOpen.value))
-
 // 键盘弹出 / 切词时都确保内容停在顶部，否则单词会被顶出视野
 watch(keyboardOpen, open => {
   if (!open) return
@@ -536,7 +533,7 @@ useEvents([
 </script>
 
 <template>
-  <PracticeLayout v-loading="loading" :locked="contentLocked" :compact="isNarrowScreen && keyboardOpen">
+  <PracticeLayout v-loading="loading" :locked="contentLocked">
     <template v-slot:practice>
       <div
         class="practice-word"
@@ -588,7 +585,6 @@ useEvents([
     </template>
     <template v-slot:footer>
       <ToolIsland
-        v-if="showIsland"
         :hasNextGroup="taskWords.new.length > 0 && settingStore.wordPracticeMode !== WordPracticeMode.Shuffle"
         @nextGroup="continueStudy"
         @randomWrite="randomWrite"

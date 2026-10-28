@@ -1,10 +1,13 @@
 <script setup lang="ts">
 /**
- * ToolIsland — 练习页底部常驻工具岛
+ * ToolIsland — 练习页底部工具条
  *
- * 只保留：练习进度 / 计时 / 阶段进度 / 设置入口 / 下一组 / 随机默写。
- * 已移除：收起逻辑、音效快捷设置、词表按钮、跳到下一阶段、释义与默写开关
- * （后两者已挪到单词输入框下方的功能栏）。
+ * 桌面端：一块常驻的小面板（阶段进度 + 进度/计时 + 可选按钮）。
+ * 手机端：只有一行进度信息（状态 · 阶段进度 · 进度/错误/单词数），透明无背景，
+ *        和早期「收起模式」的观感一致；只有用户在设置里打开了「下一组 / 随机默写」
+ *        才会在行尾追加这两个按钮。
+ *
+ * 设置入口已挪到主界面右上角的设置页，这里不再提供。
  */
 import { usePracticeStore } from '@/core/stores/practice.ts'
 import { useSettingStore } from '@/core/stores/setting.ts'
@@ -12,10 +15,10 @@ import type { PracticeData } from '@/core/composables/practice-words/practice-wo
 import { ShortcutKey } from '@/core/types/enum.ts'
 import type { PracticeFlowConfig, PracticeFlowCursor } from '@/core/composables/practice-words/practice-flow-types.ts'
 import { BaseIcon, Tooltip } from '@/base'
-import SettingDialog from '@/components/setting/SettingDialog.vue'
 import StageProgress from '@/components/StageProgress.vue'
 import { useI18n } from 'vue-i18n'
 import { computed, inject, type Ref } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
 import { getPracticeFlowDisplayState } from '@/core/composables/practice-words/practice-flow-display.ts'
 
 const props = defineProps<{
@@ -31,11 +34,15 @@ const emit = defineEmits<{
 const statStore = usePracticeStore()
 const settingStore = useSettingStore()
 const { t: $t } = useI18n()
+const isNarrowScreen = useMediaQuery('(max-width: 768px)')
 
 const practiceData = inject<PracticeData>('practiceData')!
 const activeCursor = inject<Ref<PracticeFlowCursor>>('practiceFlowCursor')!
 const activeFlowConfig = inject<Ref<PracticeFlowConfig>>('practiceFlowConfig')!
 const bumpPracticeTimerActivity = inject<(() => void) | undefined>('bumpPracticeTimerActivity', undefined)
+
+const showNextGroup = computed(() => settingStore.showBtnNextGroup && !!props.hasNextGroup)
+const showRandomWrite = computed(() => settingStore.showBtnRandomWrite)
 
 function onTimerRowClick() {
   if (statStore.timerPaused) {
@@ -64,7 +71,39 @@ const stages = computed(() => flowDisplay.value.stages)
 </script>
 
 <template>
-  <div class="island">
+  <!-- 手机端：一行进度，透明底 -->
+  <div class="island minimal" v-if="isNarrowScreen">
+    <span class="status">{{ status }}</span>
+    <StageProgress class="stage-line" :stages="stages" />
+    <Tooltip title="进度 / 错误数 / 单词数">
+      <span class="counts">
+        <span>{{ practiceData.index + 1 }}</span>
+        <span class="sep">/</span>
+        <span class="wrong">{{ format(practiceData.wrongWords.length, '', 0) }}</span>
+        <span class="sep">/</span>
+        <span>{{ practiceData.words.length }}</span>
+      </span>
+    </Tooltip>
+    <span class="mini-actions" v-if="showNextGroup || showRandomWrite">
+      <BaseIcon
+        v-if="showNextGroup"
+        :title="`下一组(${settingStore.shortcutKeyMap[ShortcutKey.NextChapter]})`"
+        @click="emit('nextGroup')"
+      >
+        <IconFluentArrowRight16Regular width="18" />
+      </BaseIcon>
+      <BaseIcon
+        v-if="showRandomWrite"
+        :title="`随机默写(${settingStore.shortcutKeyMap[ShortcutKey.RandomWrite]})`"
+        @click="emit('randomWrite')"
+      >
+        <IconFluentArrowShuffle16Regular width="18" />
+      </BaseIcon>
+    </span>
+  </div>
+
+  <!-- 桌面端：完整小面板 -->
+  <div class="island" v-else>
     <StageProgress class="stage" :stages="stages" />
 
     <div class="content">
@@ -89,20 +128,22 @@ const stages = computed(() => flowDisplay.value.stages)
         </Tooltip>
       </div>
 
-      <div class="actions">
+      <div class="actions" v-if="showNextGroup || showRandomWrite">
         <BaseIcon
-          v-if="props.hasNextGroup"
+          v-if="showNextGroup"
           :title="`下一组(${settingStore.shortcutKeyMap[ShortcutKey.NextChapter]})`"
           @click="emit('nextGroup')"
         >
           <IconFluentArrowRight16Regular width="20" />
         </BaseIcon>
 
-        <BaseIcon :title="`随机默写(${settingStore.shortcutKeyMap[ShortcutKey.RandomWrite]})`" @click="emit('randomWrite')">
+        <BaseIcon
+          v-if="showRandomWrite"
+          :title="`随机默写(${settingStore.shortcutKeyMap[ShortcutKey.RandomWrite]})`"
+          @click="emit('randomWrite')"
+        >
           <IconFluentArrowShuffle16Regular width="20" />
         </BaseIcon>
-
-        <SettingDialog type="word" />
       </div>
     </div>
   </div>
@@ -168,29 +209,54 @@ const stages = computed(() => flowDisplay.value.stages)
   }
 }
 
-/* 手机端：半透明浮层，弱化对内容的遮挡 */
+/* 手机端：只有一行，透明底，不挡内容 */
 @media (max-width: 768px) {
-  .island {
+  .island.minimal {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
     width: 100%;
     margin-bottom: 0;
-    padding: 0.2rem 0.6rem calc(0.25rem + env(safe-area-inset-bottom, 0px));
-    border-radius: 0.7rem;
-    background: color-mix(in srgb, var(--color-second) 72%, transparent);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    padding: 0.15rem 0.2rem;
+    border-radius: 0;
+    background: transparent;
     box-shadow: none;
+    // 注意：--color-sub-gray 在暗色主题下是深灰（#383737），当文字色会看不见
+    color: var(--color-main-text);
+    font-size: 0.72rem;
+    line-height: 1.2;
 
-    .stage {
-      display: none;
+    .status {
+      flex: 0 0 auto;
+      opacity: 0.6;
     }
 
-    .content {
-      justify-content: space-between;
+    .stage-line {
+      flex: 1 1 auto;
+      min-width: 2rem;
     }
 
-    .stat {
-      gap: 0.6rem;
-      font-size: 0.75rem;
+    .counts {
+      flex: 0 0 auto;
+      white-space: nowrap;
+      color: var(--color-main-text);
+      opacity: 0.95;
+
+      .wrong {
+        color: #ef4444;
+      }
+
+      .sep {
+        margin: 0 0.1rem;
+        opacity: 0.5;
+      }
+    }
+
+    .mini-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.1rem;
+      flex: 0 0 auto;
     }
   }
 }

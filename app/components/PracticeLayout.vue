@@ -1,14 +1,29 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
+import { useVirtualKeyboard } from '@/core/composables/useVirtualKeyboard.ts'
+
 defineProps<{
   /** 手机端未展开详情时锁定内容区滚动 */
   locked?: boolean
-  /** 软键盘弹出：内容区占满可视高度，底部工具岛会被隐藏 */
-  compact?: boolean
 }>()
+
+const isNarrowScreen = useMediaQuery('(max-width: 768px)')
+const { viewportHeight } = useVirtualKeyboard()
+
+/**
+ * 手机端把整个练习区固定成「可视视口高度」的纵向 flex：
+ * 内容区 flex:1，工具岛在流内贴底。
+ * 键盘弹出时容器跟着变矮，工具岛自然落在键盘上沿，不会被压到键盘后面。
+ */
+const rootStyle = computed(() => {
+  if (!isNarrowScreen.value || !viewportHeight.value) return {}
+  return { height: `${viewportHeight.value}px` }
+})
 </script>
 
 <template>
-  <div class="flex justify-center relative" :class="{ compact: compact }">
+  <div class="practice-layout" :style="rootStyle">
     <div class="wrap" id="PracticeArea" :class="{ locked: locked }">
       <slot name="practice"></slot>
     </div>
@@ -19,6 +34,12 @@ defineProps<{
 </template>
 
 <style scoped lang="scss">
+.practice-layout {
+  display: flex;
+  justify-content: center;
+  position: relative;
+}
+
 .wrap {
   transition: all var(--anim-time);
 }
@@ -31,11 +52,21 @@ defineProps<{
 }
 
 @media (max-width: 768px) {
+  .practice-layout {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    // 行内 height 会覆盖成 visualViewport 高度，这里的 dvh 只是兜底
+    height: 100vh;
+    height: 100dvh;
+  }
+
   .wrap {
-    // dvh 会随软键盘收缩，vh 不会；不支持 dvh 的浏览器退回 vh
-    height: calc(100vh - 6rem);
-    height: calc(100dvh - 6rem);
-    width: 100vw;
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
     padding: 0 1rem;
     box-sizing: border-box;
     overflow-y: auto;
@@ -47,36 +78,21 @@ defineProps<{
     }
   }
 
-  .compact .wrap {
-    height: calc(100vh - 0.5rem);
-    height: calc(100dvh - 0.5rem);
-  }
-
   .footer-wrap {
-    bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
-    left: 0.5rem;
-    right: 0.5rem;
-    width: auto;
+    position: static;
+    flex: 0 0 auto;
+    padding: 0 0.5rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
   }
 }
 
 // 超小屏幕适配
 @media (max-width: 480px) {
   .wrap {
-    height: calc(100vh - 5.4rem);
-    height: calc(100dvh - 5.4rem);
     padding: 0 0.5rem;
   }
 
-  .compact .wrap {
-    height: calc(100vh - 0.5rem);
-    height: calc(100dvh - 0.5rem);
-  }
-
   .footer-wrap {
-    bottom: calc(0.3rem + env(safe-area-inset-bottom, 0px));
-    left: 0.3rem;
-    right: 0.3rem;
+    padding: 0 0.3rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
   }
 }
 </style>

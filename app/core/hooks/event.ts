@@ -110,54 +110,47 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
     }
 
     if (type === 'keydown') {
-      // 零宽字符占位：保证 contenteditable 里始终有内容，
-      // 否则空内容时按退格不会触发 beforeinput/input，删除键就失效了
-      const ZWSP = '\u200b'
-
-      const placeCaretAtEnd = (el: HTMLElement) => {
-        const sel = window.getSelection()
-        if (!sel) return
-        const range = document.createRange()
-        range.selectNodeContents(el)
-        range.collapse(false)
-        sel.removeAllRanges()
-        sel.addRange(range)
-      }
-
       /**
        * 手机端键盘捕获器。
        *
-       * 用 contenteditable 而不是 <input>：安卓 Chrome 会对聚焦的输入框弹出
-       * 自动填充条（钥匙/卡片/人像那排），contenteditable 不属于表单控件，
-       * 不会被自动填充服务盯上。
+       * 用不可见的 <input> 而不是 contenteditable：contenteditable 会被安卓输入法
+       * 当成富文本，英文也走「组合输入」，字母全堆在候选区不提交。
+       * input 上输入法仍是组合输入，但 value 里能拿到累积文本，可以逐字符消费。
        *
        * 位置固定在视口左上角（而不是原来的 50vh/50vw）：浏览器会把聚焦元素
        * 滚动到可视区域，放在屏幕中央会导致整个页面被顶上去。
        */
       const ensureMobileInput = () => {
-        let input = document.querySelector('#typing-listener') as HTMLElement | null
+        let input = document.querySelector('#typing-listener') as HTMLInputElement | null
         if (!input) {
-          input = document.createElement('div')
+          input = document.createElement('input')
           input.id = 'typing-listener'
-          input.setAttribute('contenteditable', 'true')
-          input.setAttribute('inputmode', 'text')
-          input.setAttribute('autocorrect', 'off')
-          input.setAttribute('autocapitalize', 'off')
+          input.type = 'text'
+          // 尽可能避开浏览器/密码管理器的自动填充条
+          input.autocomplete = 'off'
           input.setAttribute('autocomplete', 'off')
+          input.setAttribute('name', 'tw-typing-catcher')
+          input.setAttribute('data-form-type', 'other')
+          input.setAttribute('data-lpignore', 'true')
+          input.setAttribute('data-1p-ignore', 'true')
+          input.setAttribute('aria-autocomplete', 'none')
+          input.setAttribute('autocapitalize', 'off')
+          input.setAttribute('autocorrect', 'off')
           input.setAttribute('spellcheck', 'false')
+          // 让输入法给出拉丁键盘，减少中文组合输入
+          input.setAttribute('inputmode', 'latin')
+          input.setAttribute('enterkeyhint', 'done')
+          input.tabIndex = -1
           input.setAttribute('aria-hidden', 'true')
-          input.textContent = ZWSP
           Object.assign(input.style, {
             position: 'fixed',
             top: '0',
             left: '0',
             width: '1px',
             height: '1px',
-            overflow: 'hidden',
             // 不能用 0：部分浏览器认为完全透明的元素不可聚焦
             opacity: '0.02',
             fontSize: '16px', // 小于 16px 时 iOS 会自动放大页面
-            lineHeight: '1',
             padding: '0',
             border: '0',
             outline: 'none',
@@ -166,8 +159,6 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
             caretColor: 'transparent',
             pointerEvents: 'none',
             zIndex: '-1',
-            userSelect: 'none',
-            WebkitUserSelect: 'none',
           })
         }
         if (!input.parentNode) {
@@ -206,38 +197,70 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
         invokeListener(createSyntheticEvent(payload))
       }
 
-      /** 把捕获器内容清空并重新放好光标 */
-      const resetCatcher = () => {
-        if (hiddenInput.textContent !== ZWSP) hiddenInput.textContent = ZWSP
-        placeCaretAtEnd(hiddenInput)
+      /** 已经派发过的文本，用于和输入框 value 求差集，避免重复计数 */
+      let consumedText = ''
+
+      const clearCatcher = () => {
+        consumedText = ''
+        if (hiddenInput.value !== '') hiddenInput.value = ''
+      }
+
+      const dispatchText = (text: string) => {
+        for (const char of text) {
+          if (emitWindowsKeys.has(char)) continue
+          emitInputKeys.add(char)
+          setTimeout(() => emitInputKeys.delete(char), 30)
+          const keyCode = char === ' ' ? 32 : char.toUpperCase().charCodeAt(0)
+          dispatchSyntheticKey({ key: char, code: charToCode(char), keyCode })
+        }
+      }
+
+      /**
+       * 消费输入框里的新增文本。
+       *
+       * 安卓输入法（含英文）会把整词累积在 value 里：输入 e→ed→edi…，
+       * 所以每次取和上一次的差集逐字符派发，用户敲一个字母就能立即上屏，
+       * 不必等输入法提交。
+       */
+      const consumeValue = () => {
+        const current = hiddenInput.value || ''
+        if (!current) return
+        let fresh = ''
+        if (current.startsWith(consumedText)) {
+          fresh = current.slice(consumedText.length)
+        } else {
+          // 输入法做了纠正/替换：跳过公共前缀，只派发剩下的部分
+          let common = 0
+          const max = Math.min(current.length, consumedText.length)
+          while (common < max && current[common] === consumedText[common]) common++
+          fresh = current.slice(common)
+        }
+        consumedText = current
+        if (fresh) dispatchText(fresh)
       }
 
       const handleCompositionStart = () => {
-        // console.log('handleCompositionStart',Date.now())
         isComposing = true
+      }
+
+      const handleCompositionUpdate = (event: CompositionEvent) => {
+        // 只有真的在打中文/日文等非拉丁字符时才提示切换输入法，
+        // 安卓上英文单词同样是「组合输入」，不能据此误报
+        if (!event.data || /^[\x20-\x7e]*$/.test(event.data)) return
         Toast.warning('请切换到英文输入')
       }
 
       const handleCompositionEnd = (event: CompositionEvent) => {
         isComposing = false
-        if (!event.data) {
-          resetCatcher()
-          return
-        }
-        for (const char of event.data) {
-          const keyCode = char === ' ' ? 32 : char.toUpperCase().charCodeAt(0)
-          dispatchSyntheticKey({
-            key: char,
-            code: charToCode(char),
-            keyCode,
-          })
-        }
-        resetCatcher()
+        // 提交时补齐还没派发的部分（组合期间已经逐字符派发过，这里通常是空的）
+        consumeValue()
+        if (!consumedText && event.data) dispatchText(event.data)
+        clearCatcher()
       }
 
       const handleBeforeInput = (event: InputEvent) => {
+        // 组合输入期间的退格是编辑候选词，交给输入法自己处理
         if (isComposing) return
-        // 退格 / 删除：contenteditable 里空内容不会触发 input，必须在这里拦
         if (event.inputType?.startsWith('delete')) {
           event.preventDefault()
           if (!emitWindowsKeys.has('Backspace')) {
@@ -245,29 +268,15 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
             setTimeout(() => emitInputKeys.delete('Backspace'), 30)
             dispatchSyntheticKey({ key: 'Backspace', code: 'Backspace', keyCode: 8 })
           }
-          resetCatcher()
+          clearCatcher()
         }
       }
 
-      const handleInput = (event: InputEvent) => {
-        if (isComposing) return
-        if (!hiddenInput.isConnected) return
-        // 捕获器里始终只有一个占位符，输入多少就取多少
-        const typed = (hiddenInput.textContent || '').split(ZWSP).join('')
-        const fallback = (event as InputEvent).data ?? ''
-        const chars = typed || fallback
-        if (!chars) {
-          resetCatcher()
-          return
-        }
-        for (const char of chars) {
-          if (emitWindowsKeys.has(char)) continue
-          emitInputKeys.add(char)
-          setTimeout(() => emitInputKeys.delete(char), 30)
-          const keyCode = char === ' ' ? 32 : char.toUpperCase().charCodeAt(0)
-          dispatchSyntheticKey({ key: char, code: charToCode(char), keyCode })
-        }
-        resetCatcher()
+      const handleInput = () => {
+        // 组合输入中也照样消费：字母立刻上屏，不会全堆在候选区
+        consumeValue()
+        // 非组合状态（直接输入、粘贴、退格）消费完就清空，避免 value 无限增长
+        if (!isComposing) clearCatcher()
       }
 
       const handleFocusRequest = (event: MouseEvent | TouchEvent) => {
@@ -305,6 +314,9 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
 
       hiddenInput.addEventListener('compositionstart', handleCompositionStart)
       registerCleanup(() => hiddenInput.removeEventListener('compositionstart', handleCompositionStart))
+
+      hiddenInput.addEventListener('compositionupdate', handleCompositionUpdate)
+      registerCleanup(() => hiddenInput.removeEventListener('compositionupdate', handleCompositionUpdate))
 
       hiddenInput.addEventListener('compositionend', handleCompositionEnd)
       registerCleanup(() => hiddenInput.removeEventListener('compositionend', handleCompositionEnd))
