@@ -37,6 +37,7 @@ import type { PracticeNotifier } from '@/core/composables/practice-words/practic
 import { usePracticeWordSession } from '@/core/composables/practice-words/usePracticeWordSession.ts'
 import { useWordDetailExpand } from '@/core/composables/practice-words/useWordDetailExpand.ts'
 import { useMediaQuery } from '@vueuse/core'
+import { useVirtualKeyboard } from '@/core/composables/useVirtualKeyboard.ts'
 
 const settingStore = useSettingStore()
 const runtimeStore = useRuntimeStore()
@@ -93,8 +94,19 @@ const { effective, toggleDictation, toggleTranslate } = session
 
 const { expanded: detailExpanded } = useWordDetailExpand()
 const isNarrowScreen = useMediaQuery('(max-width: 768px)')
+const { keyboardOpen } = useVirtualKeyboard()
 // 手机端：未展开例句/释义时锁住内容区滚动，避免误滑
 const contentLocked = computed(() => isNarrowScreen.value && !detailExpanded.value)
+
+// 手机弹出键盘时隐藏工具岛，把可视高度让给单词区
+const showIsland = computed(() => !(isNarrowScreen.value && keyboardOpen.value))
+
+// 键盘弹出 / 切词时都确保内容停在顶部，否则单词会被顶出视野
+watch(keyboardOpen, open => {
+  if (!open) return
+  document.getElementById('PracticeArea')?.scrollTo({ top: 0, behavior: 'auto' })
+  if (typeof window !== 'undefined' && window.scrollY !== 0) window.scrollTo(0, 0)
+})
 
 // 收起时把内容滚回顶部，避免残留滚动位置导致单词被顶出视野
 watch(detailExpanded, expanded => {
@@ -524,7 +536,7 @@ useEvents([
 </script>
 
 <template>
-  <PracticeLayout v-loading="loading" :locked="contentLocked">
+  <PracticeLayout v-loading="loading" :locked="contentLocked" :compact="isNarrowScreen && keyboardOpen">
     <template v-slot:practice>
       <div
         class="practice-word"
@@ -576,6 +588,7 @@ useEvents([
     </template>
     <template v-slot:footer>
       <ToolIsland
+        v-if="showIsland"
         :hasNextGroup="taskWords.new.length > 0 && settingStore.wordPracticeMode !== WordPracticeMode.Shuffle"
         @nextGroup="continueStudy"
         @randomWrite="randomWrite"

@@ -58,6 +58,15 @@ export default defineNuxtConfig({
       htmlAttrs: {
         lang: 'zh-CN',
       },
+      meta: [
+        {
+          // interactive-widget=resizes-content：软键盘弹出时让布局视口一起收缩，
+          // 而不是把整个页面顶上去（手机端练习页必须）
+          name: 'viewport',
+          content: 'width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content',
+        },
+        { name: 'format-detection', content: 'telephone=no' },
+      ],
       link: [{ rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' }],
     },
   },

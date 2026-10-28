@@ -2,11 +2,13 @@
 defineProps<{
   /** 手机端未展开详情时锁定内容区滚动 */
   locked?: boolean
+  /** 软键盘弹出：内容区占满可视高度，底部工具岛会被隐藏 */
+  compact?: boolean
 }>()
 </script>
 
 <template>
-  <div class="flex justify-center relative">
+  <div class="flex justify-center relative" :class="{ compact: compact }">
     <div class="wrap" id="PracticeArea" :class="{ locked: locked }">
       <slot name="practice"></slot>
     </div>
@@ -30,7 +32,9 @@ defineProps<{
 
 @media (max-width: 768px) {
   .wrap {
+    // dvh 会随软键盘收缩，vh 不会；不支持 dvh 的浏览器退回 vh
     height: calc(100vh - 6rem);
+    height: calc(100dvh - 6rem);
     width: 100vw;
     padding: 0 1rem;
     box-sizing: border-box;
@@ -41,6 +45,11 @@ defineProps<{
     &.locked {
       overflow: hidden;
     }
+  }
+
+  .compact .wrap {
+    height: calc(100vh - 0.5rem);
+    height: calc(100dvh - 0.5rem);
   }
 
   .footer-wrap {
@@ -55,7 +64,13 @@ defineProps<{
 @media (max-width: 480px) {
   .wrap {
     height: calc(100vh - 5.4rem);
+    height: calc(100dvh - 5.4rem);
     padding: 0 0.5rem;
+  }
+
+  .compact .wrap {
+    height: calc(100vh - 0.5rem);
+    height: calc(100dvh - 0.5rem);
   }
 
   .footer-wrap {

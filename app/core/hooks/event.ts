@@ -110,36 +110,71 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
     }
 
     if (type === 'keydown') {
+      // 零宽字符占位：保证 contenteditable 里始终有内容，
+      // 否则空内容时按退格不会触发 beforeinput/input，删除键就失效了
+      const ZWSP = '\u200b'
+
+      const placeCaretAtEnd = (el: HTMLElement) => {
+        const sel = window.getSelection()
+        if (!sel) return
+        const range = document.createRange()
+        range.selectNodeContents(el)
+        range.collapse(false)
+        sel.removeAllRanges()
+        sel.addRange(range)
+      }
+
+      /**
+       * 手机端键盘捕获器。
+       *
+       * 用 contenteditable 而不是 <input>：安卓 Chrome 会对聚焦的输入框弹出
+       * 自动填充条（钥匙/卡片/人像那排），contenteditable 不属于表单控件，
+       * 不会被自动填充服务盯上。
+       *
+       * 位置固定在视口左上角（而不是原来的 50vh/50vw）：浏览器会把聚焦元素
+       * 滚动到可视区域，放在屏幕中央会导致整个页面被顶上去。
+       */
       const ensureMobileInput = () => {
-        let input = document.querySelector('#typing-listener') as HTMLInputElement | null
+        let input = document.querySelector('#typing-listener') as HTMLElement | null
         if (!input) {
-          input = document.createElement('input')
+          input = document.createElement('div')
           input.id = 'typing-listener'
-          input.type = 'text'
-          input.autofocus = true
-          input.autocomplete = 'off'
-          input.autocapitalize = 'off'
-          input.autocorrect = false
-          input.spellcheck = false
-          input.tabIndex = -1
+          input.setAttribute('contenteditable', 'true')
+          input.setAttribute('inputmode', 'text')
+          input.setAttribute('autocorrect', 'off')
+          input.setAttribute('autocapitalize', 'off')
+          input.setAttribute('autocomplete', 'off')
+          input.setAttribute('spellcheck', 'false')
           input.setAttribute('aria-hidden', 'true')
+          input.textContent = ZWSP
           Object.assign(input.style, {
             position: 'fixed',
-            top: '50vh',
-            left: '50vw',
-            opacity: '0',
-            pointerEvents: 'none',
+            top: '0',
+            left: '0',
             width: '1px',
             height: '1px',
+            overflow: 'hidden',
+            // 不能用 0：部分浏览器认为完全透明的元素不可聚焦
+            opacity: '0.02',
+            fontSize: '16px', // 小于 16px 时 iOS 会自动放大页面
+            lineHeight: '1',
+            padding: '0',
+            border: '0',
+            outline: 'none',
+            background: 'transparent',
+            color: 'transparent',
+            caretColor: 'transparent',
+            pointerEvents: 'none',
             zIndex: '-1',
-            // left: '-9999px',
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
           })
         }
         if (!input.parentNode) {
           document.body.appendChild(input)
         }
         setTimeout(() => {
-          input.focus()
+          input.focus({ preventScroll: true } as FocusOptions)
         }, 100)
         return input
       }
@@ -171,6 +206,12 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
         invokeListener(createSyntheticEvent(payload))
       }
 
+      /** 把捕获器内容清空并重新放好光标 */
+      const resetCatcher = () => {
+        if (hiddenInput.textContent !== ZWSP) hiddenInput.textContent = ZWSP
+        placeCaretAtEnd(hiddenInput)
+      }
+
       const handleCompositionStart = () => {
         // console.log('handleCompositionStart',Date.now())
         isComposing = true
@@ -180,7 +221,7 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
       const handleCompositionEnd = (event: CompositionEvent) => {
         isComposing = false
         if (!event.data) {
-          hiddenInput.value = ' '
+          resetCatcher()
           return
         }
         for (const char of event.data) {
@@ -191,29 +232,42 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
             keyCode,
           })
         }
-        hiddenInput.value = ' '
+        resetCatcher()
+      }
+
+      const handleBeforeInput = (event: InputEvent) => {
+        if (isComposing) return
+        // 退格 / 删除：contenteditable 里空内容不会触发 input，必须在这里拦
+        if (event.inputType?.startsWith('delete')) {
+          event.preventDefault()
+          if (!emitWindowsKeys.has('Backspace')) {
+            emitInputKeys.add('Backspace')
+            setTimeout(() => emitInputKeys.delete('Backspace'), 30)
+            dispatchSyntheticKey({ key: 'Backspace', code: 'Backspace', keyCode: 8 })
+          }
+          resetCatcher()
+        }
       }
 
       const handleInput = (event: InputEvent) => {
-        // console.log('handleInput',event,Date.now())
         if (isComposing) return
-        const target = event.target as HTMLInputElement | null
-        if (!target) return
-        let char = ''
-        let keyCode = -1
-        if (event.inputType === 'deleteContentBackward') {
-          char = 'Backspace'
-          keyCode = 8
-        } else {
-          char = target?.value?.slice(-1) || (event as any).data?.slice(-1)
-          keyCode = char === ' ' ? 32 : char.toUpperCase().charCodeAt(0)
+        if (!hiddenInput.isConnected) return
+        // 捕获器里始终只有一个占位符，输入多少就取多少
+        const typed = (hiddenInput.textContent || '').split(ZWSP).join('')
+        const fallback = (event as InputEvent).data ?? ''
+        const chars = typed || fallback
+        if (!chars) {
+          resetCatcher()
+          return
         }
-        if (emitWindowsKeys.has(char)) return
-        // console.log('handleInput', Date.now(), emitWindowsKeys)
-        emitInputKeys.add(char)
-        setTimeout(() => emitInputKeys.delete(char), 30)
-        dispatchSyntheticKey({ key: char, code: charToCode(char), keyCode })
-        target.value = ' '
+        for (const char of chars) {
+          if (emitWindowsKeys.has(char)) continue
+          emitInputKeys.add(char)
+          setTimeout(() => emitInputKeys.delete(char), 30)
+          const keyCode = char === ' ' ? 32 : char.toUpperCase().charCodeAt(0)
+          dispatchSyntheticKey({ key: char, code: charToCode(char), keyCode })
+        }
+        resetCatcher()
       }
 
       const handleFocusRequest = (event: MouseEvent | TouchEvent) => {
@@ -224,7 +278,11 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
         if (!typingWord) return
         if (target.closest('input, textarea, select, [contenteditable="true"]')) return false
         if (!getSelectedText()) {
-          window.setTimeout(() => hiddenInput.focus(), 160)
+          window.setTimeout(() => {
+            hiddenInput.focus({ preventScroll: true } as FocusOptions)
+            // 手机上聚焦后浏览器可能把页面滚走，这里再兜一次
+            if (window.scrollY !== 0) window.scrollTo(0, 0)
+          }, 160)
         }
       }
 
@@ -250,6 +308,9 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
 
       hiddenInput.addEventListener('compositionend', handleCompositionEnd)
       registerCleanup(() => hiddenInput.removeEventListener('compositionend', handleCompositionEnd))
+
+      hiddenInput.addEventListener('beforeinput', handleBeforeInput as any, { capture: true })
+      registerCleanup(() => hiddenInput.removeEventListener('beforeinput', handleBeforeInput as any, { capture: true }))
 
       hiddenInput.addEventListener('input', handleInput, { capture: true })
       registerCleanup(() => hiddenInput.removeEventListener('input', handleInput, { capture: true }))
