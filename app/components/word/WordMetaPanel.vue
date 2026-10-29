@@ -290,6 +290,12 @@ defineExpose({ startPracticeSentence, playSentence })
 
 @media (max-width: 768px) {
   .word-meta {
+    // 手机上释义/例句整体缩一档（默认 20px → 16px），第一屏能看到更多条释义
+    font-size: 0.8em;
+    // .practice-word 的 text-2xl 会把固定行高 2rem 继承下来（16px 字配 32px 行），
+    // 必须显式覆盖成无单位行高，否则行距吃掉两倍屏幕
+    line-height: 1.6;
+
     .label {
       @apply w-unset mr-2;
     }

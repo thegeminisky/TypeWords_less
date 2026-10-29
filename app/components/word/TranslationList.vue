@@ -103,4 +103,11 @@ onMounted(() => {
   opacity: 1;
   //font-weight: 500;
 }
+
+@media (max-width: 768px) {
+  // 手机上收紧释义分段的换行间距，配合缩小字号能看到更多释义
+  .flex.gap-3 {
+    gap: 0.4rem 0.6rem;
+  }
+}
 </style>
