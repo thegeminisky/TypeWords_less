@@ -78,8 +78,13 @@ export async function ensureSession(force = false): Promise<boolean> {
 }
 
 /** 提交密钥；成功返回 true */
-/** 门禁页：首次部署/重置后服务端会明文返回一次 OTP，之后为 null */
-export async function getGateOtp(): Promise<{ otp: string | null; length: number }> {
+/** 门禁页：首次部署/重置后服务端返回一次 TOTP 密钥与扫码 URI，之后为 null */
+export async function getGateOtp(): Promise<{
+  totp: string | null
+  otpauth: string | null
+  digits: number
+  period: number
+}> {
   return request('/api/auth/gate')
 }
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // TypeWords 应用服务器
-// - 门禁：OTP 访问码。首次部署/重置后门禁页明文展示一次，登录成功即隐藏；
-//   服务端只存 sha256；重置必须通过命令行: node server.mjs reset-otp
+// - 门禁：TOTP 动态码（RFC 6238，30s 滚动）。首次部署/重置后门禁页展示二维码
+//   供验证器 App 扫码绑定，登录成功后二维码隐藏；重置: node server.mjs reset-otp
 // - 同步：/api/sync/* 读写服务端 JSON（全局单一档案，所有浏览器共享）
 // - 静态：托管 web/ 下的构建产物，未命中回退 200.html（SPA）
 
@@ -55,29 +55,95 @@ const MIME = {
   '.pdf': 'application/pdf',
 }
 
-// ---------------- OTP 门禁 ----------------
+// ---------------- TOTP 门禁（RFC 6238：SHA1 / 6 位 / 30s，验证器 App 扫码绑定） ----------------
 
-// 去掉易混淆字符（i/l/o/0/1）的小写字母数字表，手机上好敲
-const OTP_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789'
-const OTP_LENGTH = 8
+const B32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+const TOTP_PERIOD = 30
+const TOTP_DIGITS = 6
+const TOTP_WINDOW = 1 // 允许前后各 1 个步长，容忍手机时钟偏差
+const TOTP_ISSUER = 'TypeWords'
 
 function sha256(v) {
   return crypto.createHash('sha256').update(String(v), 'utf8').digest('hex')
 }
 
-function genOtp() {
-  const out = []
-  for (let i = 0; i < OTP_LENGTH; i++) out.push(OTP_ALPHABET[crypto.randomInt(OTP_ALPHABET.length)])
-  return out.join('')
+function base32Encode(buf) {
+  let bits = 0
+  let value = 0
+  let out = ''
+  for (const byte of buf) {
+    value = (value << 8) | byte
+    bits += 8
+    while (bits >= 5) {
+      out += B32_ALPHABET[(value >>> (bits - 5)) & 31]
+      bits -= 5
+    }
+  }
+  if (bits > 0) out += B32_ALPHABET[(value << (5 - bits)) & 31]
+  return out
 }
 
-/** @type {{otp?:string, otpHash:string, createdAt:number, reveal:boolean} | null} */
+function base32Decode(str) {
+  const clean = String(str).replace(/=+$/, '').replace(/\s/g, '').toUpperCase()
+  let bits = 0
+  let value = 0
+  const out = []
+  for (const ch of clean) {
+    const idx = B32_ALPHABET.indexOf(ch)
+    if (idx < 0) continue
+    value = (value << 5) | idx
+    bits += 5
+    if (bits >= 8) {
+      out.push((value >>> (bits - 8)) & 255)
+      bits -= 8
+    }
+  }
+  return Buffer.from(out)
+}
+
+function genTotpSecret() {
+  // 20 字节 = 160 位，验证器 App 的标准强度
+  return base32Encode(crypto.randomBytes(20))
+}
+
+function totpUri(secret) {
+  const label = encodeURIComponent(`${TOTP_ISSUER}:gate`)
+  return `otpauth://totp/${label}?secret=${secret}&issuer=${TOTP_ISSUER}&algorithm=SHA1&digits=${TOTP_DIGITS}&period=${TOTP_PERIOD}`
+}
+
+function totpAt(secretBuf, step) {
+  const msg = Buffer.alloc(8)
+  msg.writeBigUInt64BE(BigInt(step))
+  const hmac = crypto.createHmac('sha1', secretBuf).update(msg).digest()
+  const off = hmac[hmac.length - 1] & 0xf
+  const code = ((hmac[off] & 0x7f) << 24) | (hmac[off + 1] << 16) | (hmac[off + 2] << 8) | hmac[off + 3]
+  return String(code % 1e6).padStart(TOTP_DIGITS, '0')
+}
+
+function currentStep() {
+  return Math.floor(Date.now() / 1000 / TOTP_PERIOD)
+}
+
+/** 校验动态码，命中返回对应的 step，否则 -1 */
+function verifyTotp(secretB32, input) {
+  const clean = String(input).replace(/\D/g, '')
+  if (clean.length !== TOTP_DIGITS) return -1
+  const buf = base32Decode(secretB32)
+  const step = currentStep()
+  for (let i = -TOTP_WINDOW; i <= TOTP_WINDOW; i++) {
+    if (totpAt(buf, step + i) === clean) return step + i
+  }
+  return -1
+}
+
+/** @type {{totp:string, createdAt:number, reveal:boolean, lastUsedStep?:number} | null} */
 let gate = null
 let gateLoadedAt = 0
 
 /**
  * 读取门禁状态（带 1s 缓存，便于运行中的实例感知命令行重置）。
- * 文件不存在/损坏时生成新 OTP：明文打印到日志 + 门禁页展示一次（reveal=true）。
+ * 文件缺失/损坏/是旧版静态 OTP（无 totp 字段）时生成新密钥：
+ * otpauth URI 打印到日志，门禁页展示一次二维码（reveal=true）。
  */
 function loadGate(force = false) {
   const now = Date.now()
@@ -85,7 +151,7 @@ function loadGate(force = false) {
   gateLoadedAt = now
   try {
     const raw = JSON.parse(fs.readFileSync(GATE_FILE, 'utf8'))
-    gate = raw?.otpHash ? { otp: raw.otp || undefined, otpHash: raw.otpHash, createdAt: raw.createdAt || now, reveal: !!raw.reveal } : null
+    gate = raw?.totp ? { totp: raw.totp, createdAt: raw.createdAt || now, reveal: !!raw.reveal, lastUsedStep: raw.lastUsedStep || 0 } : null
   } catch {
     gate = null
   }
@@ -94,12 +160,14 @@ function loadGate(force = false) {
 }
 
 function createGate() {
-  const otp = genOtp()
-  const g = { otp, otpHash: sha256(otp), createdAt: Date.now(), reveal: true }
+  const totp = genTotpSecret()
+  const g = { totp, createdAt: Date.now(), reveal: true, lastUsedStep: 0 }
   void persistGate(g)
   console.log('')
-  console.log(`[gate] 本次部署的 OTP 访问码: ${otp}`)
-  console.log('[gate] 门禁页会展示一次，登录成功后不再显示；忘记请运行: node server.mjs reset-otp')
+  console.log('[gate] 已生成 TOTP 密钥，用验证器 App 扫门禁页二维码绑定')
+  console.log(`[gate] otpauth: ${totpUri(totp)}`)
+  console.log(`[gate] 手动输入密钥: ${totp}`)
+  console.log('[gate] 二维码仅展示一次，登录成功后不再显示；重置请运行: node server.mjs reset-otp')
   console.log('')
   return g
 }
@@ -138,7 +206,7 @@ function gateRecordFail(ip) {
   if (rec.count >= FAIL_MAX) rec.blockedUntil = now + BLOCK_MS
 }
 
-// ---------------- 会话 ----------------
+// ---------------- 会话 ----------------// ---------------- 会话 ----------------
 
 /** @type {Map<string, number>} token -> expiresAt */
 let sessions = new Map()
@@ -357,10 +425,15 @@ async function handleApi(req, res, url) {
     return json(res, 200, { authenticated: !!getSession(req) })
   }
 
-  // 门禁页查询：仅首次部署/重置后（reveal=true）返回明文 OTP，登录成功即隐藏
+  // 门禁页查询：仅首次部署/重置后（reveal=true）返回 TOTP 密钥与扫码 URI，登录成功即隐藏
   if (p === '/api/auth/gate' && req.method === 'GET') {
     const g = loadGate()
-    return json(res, 200, { otp: g.reveal && g.otp ? g.otp : null, length: OTP_LENGTH })
+    return json(res, 200, {
+      totp: g.reveal ? g.totp : null,
+      otpauth: g.reveal ? totpUri(g.totp) : null,
+      digits: TOTP_DIGITS,
+      period: TOTP_PERIOD,
+    })
   }
 
   if (p === '/api/auth' && req.method === 'POST') {
@@ -376,18 +449,23 @@ async function handleApi(req, res, url) {
       return json(res, 429, { ok: false, error: 'TOO_MANY_ATTEMPTS', retryAfter: blocked })
     }
     const g = loadGate()
-    const input = String(body?.key ?? '').trim().toLowerCase()
-    if (!timingSafeEqualStr(sha256(input), g.otpHash)) {
+    const input = String(body?.key ?? '').trim()
+    const usedStep = verifyTotp(g.totp, input)
+    if (usedStep < 0) {
       gateRecordFail(ip)
       // 简单延时，削弱暴力尝试
       await new Promise(r => setTimeout(r, 400))
       return json(res, 401, { ok: false, error: 'INVALID_KEY' })
     }
+    // 防重放：同一 30s 窗口的动态码只能用一次
+    if (g.lastUsedStep && usedStep <= g.lastUsedStep) {
+      return json(res, 401, { ok: false, error: 'CODE_REUSED' })
+    }
     gateFails.delete(ip)
-    // 首次用该 OTP 登录成功：门禁页不再展示明文，磁盘上也只保留哈希
-    if (g.reveal || g.otp) {
+    g.lastUsedStep = usedStep
+    // 首次用该密钥登录成功：门禁页不再展示二维码
+    if (g.reveal) {
       g.reveal = false
-      delete g.otp
       void persistGate(g)
     }
     const token = crypto.randomBytes(32).toString('hex')
@@ -518,11 +596,14 @@ server.headersTimeout = 35000
 if (process.argv[2] === 'reset-otp' || process.argv[2] === '--reset-otp') {
   await (async () => {
     await fsp.mkdir(DATA_DIR, { recursive: true })
-    const otp = genOtp()
-    const g = { otp, otpHash: sha256(otp), createdAt: Date.now(), reveal: true }
+    const totp = genTotpSecret()
+    const g = { totp, createdAt: Date.now(), reveal: true, lastUsedStep: 0 }
     await atomicWrite(GATE_FILE, JSON.stringify(g, null, 2))
-    console.log(`[gate] 已重置，新 OTP 访问码: ${otp}`)
-    console.log('[gate] 门禁页会展示一次，登录成功后隐藏')
+    console.log('[gate] 已重置 TOTP 密钥，旧绑定即刻失效')
+    console.log(`[gate] 扫码 URI: ${totpUri(totp)}`)
+    console.log(`[gate] 手动输入密钥: ${totp}`)
+    console.log(`[gate] 当前动态码: ${totpAt(base32Decode(totp), currentStep())}（${TOTP_PERIOD}s 有效）`)
+    console.log('[gate] 门禁页会展示一次二维码，登录成功后隐藏')
   })()
   process.exit(0)
 }

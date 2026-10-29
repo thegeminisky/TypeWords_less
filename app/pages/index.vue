@@ -5,6 +5,8 @@
  */
 import { BaseButton, BaseInput } from '@/base'
 import { ensureSession, getGateOtp, login } from '@/core/utils/remote'
+// @ts-ignore qrcode 无自带类型，已在 global.d.ts 声明
+import QRCode from 'qrcode'
 
 definePageMeta({ layout: 'empty' })
 
@@ -14,7 +16,9 @@ useSeoMeta({
 })
 
 const otp = ref('')
-const revealOtp = ref('')
+const revealSecret = ref('')
+const revealUri = ref('')
+const qrDataUrl = ref('')
 const copied = ref(false)
 const loading = ref(false)
 const error = ref('')
@@ -28,20 +32,28 @@ onMounted(async () => {
     await navigateTo('/words', { replace: true })
     return
   }
-  // 首次部署 / 命令行重置后，服务端会把 OTP 明文返回一次
+  // 首次部署 / 命令行重置后，服务端返回一次 TOTP 密钥与扫码 URI
   try {
     const gate = await getGateOtp()
-    revealOtp.value = gate?.otp ?? ''
+    if (gate?.otpauth) {
+      revealUri.value = gate.otpauth
+      revealSecret.value = gate.totp ?? ''
+      qrDataUrl.value = await QRCode.toDataURL(gate.otpauth, {
+        margin: 1,
+        width: 220,
+        color: { dark: '#4c1d95', light: '#ffffff' },
+      })
+    }
   } catch {
     /* 服务端不可达时只展示输入框 */
   }
   checking.value = false
 })
 
-async function copyOtp() {
-  if (!revealOtp.value) return
+async function copySecret() {
+  if (!revealSecret.value) return
   try {
-    await navigator.clipboard.writeText(revealOtp.value)
+    await navigator.clipboard.writeText(revealSecret.value)
     copied.value = true
     setTimeout(() => (copied.value = false), 1500)
   } catch {
@@ -57,7 +69,7 @@ async function submit() {
   }
   const value = otp.value.trim()
   if (!value) {
-    error.value = '请输入 OTP 访问码'
+    error.value = '请输入验证器上的 6 位动态码'
     return
   }
 
@@ -70,7 +82,7 @@ async function submit() {
       return
     }
     cooldown = Date.now() + 1500
-    error.value = 'OTP 不正确'
+    error.value = '动态码不正确，请确认验证器时间与网络时间一致'
     shake.value = true
     setTimeout(() => (shake.value = false), 400)
   } catch {
@@ -87,25 +99,27 @@ async function submit() {
       <div class="brand">
         <span class="brand-main">Type</span><span class="brand-accent">Words</span>
       </div>
-      <template v-if="revealOtp">
+      <template v-if="revealUri">
         <div class="otp-reveal">
-          <div class="otp-title">本次部署的 OTP 访问码</div>
-          <button class="otp-code" type="button" @click="copyOtp">{{ revealOtp }}</button>
-          <div class="otp-tip">{{ copied ? '已复制到剪贴板' : '点击复制，仅展示这一次，请立即保存' }}</div>
+          <div class="otp-title">首次绑定验证器</div>
+          <img class="otp-qr" :src="qrDataUrl" alt="TOTP 二维码" />
+          <div class="otp-tip">用 Google Authenticator 等验证器 App 扫码，输入 30 秒动态码登录</div>
+          <button class="otp-secret" type="button" @click="copySecret" :title="revealSecret">
+            {{ copied ? '已复制密钥' : '无法扫码？点此复制密钥手动添加' }}
+          </button>
         </div>
-        <div class="hint">输入上方 OTP 码完成首次登录，之后该码不再显示</div>
       </template>
-      <div v-else class="hint">本站为私有部署，请输入 OTP 访问码</div>
+      <div class="hint">本站为私有部署，请输入验证器上的动态码</div>
 
       <div class="field">
-        <BaseInput v-model="otp" size="large" autofocus placeholder="OTP 访问码" @enter="submit" />
+        <BaseInput v-model="otp" size="large" autofocus maxlength="6" placeholder="6 位动态码" @enter="submit" />
       </div>
 
       <div class="error">{{ error }}</div>
 
       <BaseButton size="large" :loading="loading" class="w-full" @click="submit">进 入</BaseButton>
 
-      <div class="reset-tip">忘记 OTP？需在服务器命令行执行 node server.mjs reset-otp 重置</div>
+      <div class="reset-tip">换手机 / 丢失验证器？需在服务器命令行执行 node server.mjs reset-otp 重置</div>
     </div>
   </div>
 </template>
@@ -196,31 +210,40 @@ async function submit() {
   text-align: center;
 
   .otp-title {
-    font-size: 0.8rem;
-    color: var(--color-tips, #8a8a8a);
-    margin-bottom: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--color-main-text);
+    margin-bottom: 0.7rem;
   }
 
-  .otp-code {
+  .otp-qr {
+    display: block;
+    width: 180px;
+    height: 180px;
+    margin: 0 auto 0.6rem;
+    border-radius: 0.4rem;
+  }
+
+  .otp-tip {
+    font-size: 0.72rem;
+    color: var(--color-tips, #8a8a8a);
+    line-height: 1.5;
+  }
+
+  .otp-secret {
+    margin-top: 0.6rem;
     font-family: var(--en-article-family, monospace);
-    font-size: 1.8rem;
-    font-weight: 700;
-    letter-spacing: 0.35rem;
+    font-size: 0.68rem;
     color: #8b5cf6;
     background: transparent;
     border: none;
     cursor: pointer;
-    padding: 0 0.35rem 0 0.35rem;
+    word-break: break-all;
+    padding: 0;
 
     &:hover {
       opacity: 0.85;
     }
-  }
-
-  .otp-tip {
-    margin-top: 0.5rem;
-    font-size: 0.72rem;
-    color: var(--color-tips, #8a8a8a);
   }
 }
 
