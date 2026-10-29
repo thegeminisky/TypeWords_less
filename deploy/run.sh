@@ -11,7 +11,7 @@ export DATA_DIR="$APP_DIR/data"
 export HOST="0.0.0.0"
 export PORT="${PORT:-8300}"
 export NODE_ENV=production
-export NODE_OPTIONS="--max-old-space-size=256"
+export NODE_OPTIONS="--max-old-space-size=512"
 
 # 日志轮转：超过 10MB 归档，最多保留 5 份
 LOG="$APP_DIR/logs/server.log"

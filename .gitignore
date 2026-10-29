@@ -51,3 +51,6 @@ shots/
 
 # 部署打包产物
 deploy/*.tar.gz
+
+# 本地词库源文件
+IELTS*.json

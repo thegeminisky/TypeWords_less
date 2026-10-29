@@ -17,7 +17,7 @@ const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(import.meta.dirn
 const PORT = Number(process.env.PORT || 8300)
 const HOST = process.env.HOST || '0.0.0.0'
 const SESSION_TTL = 1000 * 60 * 60 * 24 * 30 // 30 天
-const MAX_BODY = 5 * 1024 * 1024 // 5MB：词库 JSON 实际 <100KB，收紧防大包 OOM
+const MAX_BODY = 32 * 1024 * 1024 // 32MB：大词典导入后的同步负载 ~20MB（该接口在登录态之后才读 body）
 
 const STATE_FILE = path.join(DATA_DIR, 'state.json')
 const SESSION_FILE = path.join(DATA_DIR, 'sessions.json')

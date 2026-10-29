@@ -267,6 +267,32 @@ defineRender(() => {
                     <BaseButton onClick={() => sort(Sort.randomAll)}>{$t('random_all')}</BaseButton>
                   </div>
                 </MiniDialog>
+
+                <BaseIcon
+                  disabled={props.readonly}
+                  title={props.readonly ? props.readonlyTip : '导入 JSON'}
+                  onClick={() => !props.readonly && emit('import')}
+                >
+                  <IconFluentArrowImport20Regular />
+                </BaseIcon>
+                <BaseIcon
+                  disabled={!params.list.length}
+                  title="导出 JSON"
+                  onClick={() => emit('exportJson')}
+                >
+                  <IconFluentArrowExport20Regular />
+                </BaseIcon>
+                <BaseIcon
+                  disabled={!params.list.length}
+                  title="导出 Excel"
+                  onClick={() => emit('exportXlsx')}
+                >
+                  {props.exportXlsxLoading ? (
+                    <IconEosIconsLoading color="gray" width="18" height="18" />
+                  ) : (
+                    <IconFluentArrowExportLtr20Regular />
+                  )}
+                </BaseIcon>
               </div>
             </div>
           )}
