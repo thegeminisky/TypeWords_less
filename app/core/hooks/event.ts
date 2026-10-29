@@ -233,7 +233,19 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
       const consumeValue = () => {
         // 去掉占位空格后再求差集
         const current = (hiddenInput.value || '').replace(/^ +/, '')
-        if (!current) return
+        if (!current) {
+          // 组合文本被清空：通知应用删一个字母（一次按键对应一次退格）
+          if (consumedText) dispatchBackspace()
+          consumedText = ''
+          return
+        }
+        // 组合输入期间按退格：value 变短 → 通知应用删一个字母，
+        // 否则输入法删了候选字、应用的已输入字母却纹丝不动
+        if (consumedText.startsWith(current) && current.length < consumedText.length) {
+          dispatchBackspace()
+          consumedText = current
+          return
+        }
         let fresh = ''
         if (current.startsWith(consumedText)) {
           fresh = current.slice(consumedText.length)
@@ -267,16 +279,6 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
         resetCatcher()
       }
 
-      const handleBeforeInput = (event: InputEvent) => {
-        // 组合输入期间的退格是编辑候选词，交给输入法自己处理
-        if (isComposing) return
-        if (event.inputType?.startsWith('delete')) {
-          event.preventDefault()
-          dispatchBackspace()
-          resetCatcher()
-        }
-      }
-
       const handleInput = (event: InputEvent) => {
         // 组合输入：value 累积，差集逐字符消费（退格由输入法自己处理）
         if (isComposing) {
@@ -289,9 +291,11 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
           resetCatcher()
           return
         }
-        // 直接上屏：value = 占位空格 + 新字符，取最后一个
-        const ch = (hiddenInput.value || '').slice(-1)
-        if (ch && ch !== ' ') dispatchText(ch)
+        // 直接上屏：优先取本次插入的字符（空格也算——按空格才能进下一个单词），
+        // 没有data时退回取 value 末字符（占位空格在前面，不会误取）
+        const data = (event as InputEvent).data
+        const ch = (data ?? (hiddenInput.value || '')).slice(-1)
+        if (ch) dispatchText(ch)
         resetCatcher()
       }
 
@@ -336,9 +340,6 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
 
       hiddenInput.addEventListener('compositionend', handleCompositionEnd)
       registerCleanup(() => hiddenInput.removeEventListener('compositionend', handleCompositionEnd))
-
-      hiddenInput.addEventListener('beforeinput', handleBeforeInput as any, { capture: true })
-      registerCleanup(() => hiddenInput.removeEventListener('beforeinput', handleBeforeInput as any, { capture: true }))
 
       hiddenInput.addEventListener('input', handleInput, { capture: true })
       registerCleanup(() => hiddenInput.removeEventListener('input', handleInput, { capture: true }))

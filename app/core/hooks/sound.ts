@@ -48,6 +48,56 @@ export function useSound(audioSrcList?: string[], audioFileLength?: number) {
   let audioLength = ref(1)
   let index = ref(0)
 
+  /**
+   * Web Audio 低延迟播放。
+   * 移动端 HTMLAudio.play() 的媒体管线延迟普遍 100ms+，打字音效听起来「跟手慢半拍」；
+   * 预解码成 AudioBuffer 后用 BufferSource 直出，延迟降到 10ms 级，
+   * 且同一 buffer 可重叠播放（原来复制多份 Audio 就是为了这个）。
+   * AudioContext 被系统挂起（iOS 首次）时本次退回 HTMLAudio，resume 后自动走低延迟路径。
+   */
+  let audioCtx: AudioContext | null = null
+  const buffers: AudioBuffer[] = []
+
+  function ensureCtx() {
+    if (audioCtx) return audioCtx
+    const Ctor = window.AudioContext || (window as any).webkitAudioContext
+    if (!Ctor) return null
+    audioCtx = new Ctor()
+    return audioCtx
+  }
+
+  async function preloadBuffers(srcList: string[]) {
+    const ctx = ensureCtx()
+    if (!ctx) return
+    for (const src of srcList) {
+      try {
+        const res = await fetch(ENV.RESOURCE_URL + src)
+        const arr = await res.arrayBuffer()
+        buffers.push(await ctx.decodeAudioData(arr))
+      } catch (e) {
+        // 单个解码失败忽略，该音继续走 HTMLAudio 兜底
+      }
+    }
+  }
+
+  function playBuffer(volume: number): boolean {
+    const ctx = ensureCtx()
+    if (!ctx || !buffers.length) return false
+    if (ctx.state !== 'running') {
+      void ctx.resume()
+      return false
+    }
+    index.value++
+    const source = ctx.createBufferSource()
+    source.buffer = buffers[index.value % buffers.length]
+    const gain = ctx.createGain()
+    gain.gain.value = Math.min(Math.max(volume / 100, 0), 1)
+    source.connect(gain)
+    gain.connect(ctx.destination)
+    source.start()
+    return true
+  }
+
   onMounted(() => {
     if (audioSrcList) setAudio(audioSrcList, audioFileLength)
   })
@@ -62,9 +112,11 @@ export function useSound(audioSrcList?: string[], audioFileLength?: number) {
       audioSrcList2.map(src => audioList.value.push(new Audio(ENV.RESOURCE_URL + src)))
     }
     index.value = 0
+    void preloadBuffers(audioSrcList2)
   }
 
   function play(volume: number = 100) {
+    if (playBuffer(volume)) return
     index.value++
     if (audioList.value.length > 1 && audioList.value.length !== audioLength.value) {
       let htmlAudioElement = audioList.value[index.value % audioList.value.length]
