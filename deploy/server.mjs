@@ -17,7 +17,7 @@ const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(import.meta.dirn
 const PORT = Number(process.env.PORT || 8300)
 const HOST = process.env.HOST || '0.0.0.0'
 const SESSION_TTL = 1000 * 60 * 60 * 24 * 30 // 30 天
-const MAX_BODY = 32 * 1024 * 1024 // 32MB，词库数据可能较大
+const MAX_BODY = 5 * 1024 * 1024 // 5MB：词库 JSON 实际 <100KB，收紧防大包 OOM
 
 const STATE_FILE = path.join(DATA_DIR, 'state.json')
 const SESSION_FILE = path.join(DATA_DIR, 'sessions.json')
@@ -151,17 +151,25 @@ function loadGate(force = false) {
   gateLoadedAt = now
   try {
     const raw = JSON.parse(fs.readFileSync(GATE_FILE, 'utf8'))
-    gate = raw?.totp ? { totp: raw.totp, createdAt: raw.createdAt || now, reveal: !!raw.reveal, lastUsedStep: raw.lastUsedStep || 0 } : null
+    gate = raw?.totp
+      ? { totp: raw.totp, createdAt: raw.createdAt || now, reveal: !!raw.reveal, revealUntil: raw.revealUntil || 0, lastUsedStep: raw.lastUsedStep || 0 }
+      : null
   } catch {
     gate = null
   }
   if (!gate) gate = createGate()
+  // 展示时效：超时或旧数据没有时效字段的，一律视为已过期
+  if (gate.reveal && (!gate.revealUntil || now > gate.revealUntil)) {
+    gate.reveal = false
+    void persistGate(gate)
+  }
   return gate
 }
 
 function createGate() {
   const totp = genTotpSecret()
-  const g = { totp, createdAt: Date.now(), reveal: true, lastUsedStep: 0 }
+  // 二维码只展示 10 分钟：防止部署/重置后长时间挂在网上被他人抢先绑定
+  const g = { totp, createdAt: Date.now(), reveal: true, revealUntil: Date.now() + 10 * 60 * 1000, lastUsedStep: 0 }
   void persistGate(g)
   console.log('')
   console.log('[gate] 已生成 TOTP 密钥，用验证器 App 扫门禁页二维码绑定')
@@ -176,6 +184,7 @@ async function persistGate(g) {
   try {
     await fsp.mkdir(DATA_DIR, { recursive: true })
     await atomicWrite(GATE_FILE, JSON.stringify(g, null, 2))
+    await fsp.chmod(GATE_FILE, 0o600).catch(() => {})
   } catch (e) {
     console.error('[gate] persist failed', e)
   }
@@ -193,6 +202,19 @@ function gateBlocked(ip) {
   if (rec.blockedUntil && rec.blockedUntil > Date.now()) return Math.ceil((rec.blockedUntil - Date.now()) / 1000)
   if (Date.now() - rec.firstAt > FAIL_WINDOW) gateFails.delete(ip)
   return 0
+}
+
+// 通用速率限制（内存桶），用于同步接口与门禁查询
+const rateBuckets = new Map() // key -> { count, firstAt }
+function hitRateLimit(key, max, windowMs) {
+  const now = Date.now()
+  const rec = rateBuckets.get(key)
+  if (!rec || now - rec.firstAt > windowMs) {
+    rateBuckets.set(key, { count: 1, firstAt: now })
+    return true
+  }
+  rec.count++
+  return rec.count <= max
 }
 
 function gateRecordFail(ip) {
@@ -231,6 +253,7 @@ function saveSessions() {
       const obj = Object.fromEntries(sessions)
       await fsp.mkdir(DATA_DIR, { recursive: true })
       await atomicWrite(SESSION_FILE, JSON.stringify(obj))
+      await fsp.chmod(SESSION_FILE, 0o600).catch(() => {})
     } catch (e) {
       console.error('[session] save failed', e)
     }
@@ -306,12 +329,21 @@ function persistState() {
 
 // ---------------- HTTP 工具 ----------------
 
+// 全站基础安全响应头（HTTPS 上线后再补 HSTS）
+const SEC_HEADERS = {
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Content-Security-Policy': "frame-ancestors 'none'",
+  'Cross-Origin-Opener-Policy': 'same-origin',
+}
+
 function json(res, status, body) {
   const buf = Buffer.from(JSON.stringify(body))
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': buf.length,
     'Cache-Control': 'no-store',
+    ...SEC_HEADERS,
   })
   res.end(buf)
 }
@@ -323,8 +355,10 @@ function readBody(req) {
     req.on('data', chunk => {
       size += chunk.length
       if (size > MAX_BODY) {
+        // 丢弃剩余数据并正常拒绝，而不是直接断连（客户端能收到 400）
+        req.removeAllListeners('data')
+        req.resume()
         reject(new Error('BODY_TOO_LARGE'))
-        req.destroy()
         return
       }
       chunks.push(chunk)
@@ -404,6 +438,7 @@ function sendFile(req, res, file, st, status = 200, urlPath = req.url) {
     'Content-Length': st.size,
     'Cache-Control': cacheControl(file, urlPath),
     'X-Content-Type-Options': 'nosniff',
+    ...SEC_HEADERS,
   }
   if (req.method === 'HEAD') {
     res.writeHead(status, headers)
@@ -427,6 +462,9 @@ async function handleApi(req, res, url) {
 
   // 门禁页查询：仅首次部署/重置后（reveal=true）返回 TOTP 密钥与扫码 URI，登录成功即隐藏
   if (p === '/api/auth/gate' && req.method === 'GET') {
+    if (!hitRateLimit(`gate:${req.socket.remoteAddress}`, 20, 60 * 1000)) {
+      return json(res, 429, { ok: false, error: 'TOO_MANY_REQUESTS' })
+    }
     const g = loadGate()
     return json(res, 200, {
       totp: g.reveal ? g.totp : null,
@@ -488,6 +526,11 @@ async function handleApi(req, res, url) {
   // 以下接口都需要登录
   if (!getSession(req)) return json(res, 401, { ok: false, error: 'UNAUTHORIZED' })
 
+  // 同步接口整体限速：120 次/分钟/IP
+  if (p.startsWith('/api/sync/') && !hitRateLimit(`sync:${req.socket.remoteAddress}`, 120, 60 * 1000)) {
+    return json(res, 429, { ok: false, error: 'TOO_MANY_REQUESTS' })
+  }
+
   if (p === '/api/sync/meta' && req.method === 'GET') {
     const types = (url.searchParams.get('types') || SYNC_TYPES.join(','))
       .split(',')
@@ -538,12 +581,6 @@ async function handleApi(req, res, url) {
     if (!applied.length) return json(res, 400, { ok: false, error: 'NO_VALID_ROWS' })
     await persistState()
     return json(res, 200, { ok: true, applied, updated_at: now })
-  }
-
-  if (p === '/api/sync/reset' && req.method === 'POST') {
-    state = {}
-    await persistState()
-    return json(res, 200, { ok: true })
   }
 
   return json(res, 404, { ok: false, error: 'NOT_FOUND' })
@@ -597,7 +634,8 @@ if (process.argv[2] === 'reset-otp' || process.argv[2] === '--reset-otp') {
   await (async () => {
     await fsp.mkdir(DATA_DIR, { recursive: true })
     const totp = genTotpSecret()
-    const g = { totp, createdAt: Date.now(), reveal: true, lastUsedStep: 0 }
+    // revealUntil 必须带上：否则时效逻辑会把它当旧数据立即过期，二维码刚生成就被藏起来
+    const g = { totp, createdAt: Date.now(), reveal: true, revealUntil: Date.now() + 10 * 60 * 1000, lastUsedStep: 0 }
     await atomicWrite(GATE_FILE, JSON.stringify(g, null, 2))
     console.log('[gate] 已重置 TOTP 密钥，旧绑定即刻失效')
     console.log(`[gate] 扫码 URI: ${totpUri(totp)}`)

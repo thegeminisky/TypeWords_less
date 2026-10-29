@@ -75,12 +75,16 @@ export function isHighlightToken(token: string, highlightWord: string): boolean 
 }
 
 /** 生成与 SentenceHightLightWord 相同的高亮 HTML */
+function escapeHtml(str: string): string {
+  return str.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]!)
+}
+
 export function buildHighlightedHtml(
   text: string,
   highlightWord: string,
   options: { highLight?: boolean; dictation?: boolean } = {}
 ): string {
-  if (!text || !highlightWord) return text
+  if (!text || !highlightWord) return escapeHtml(text ?? '')
 
   const classNames = [
     options.highLight !== false ? 'highlight-word' : '',
@@ -90,5 +94,7 @@ export function buildHighlightedHtml(
     .join(' ')
   const wrap = (match: string) => `<span class="${classNames}">${match}</span>`
 
-  return getWordRegexes(highlightWord).reduce((result, regex) => result.replace(regex, wrap), text)
+  // 先做 HTML 实体转义再高亮：text 来自词典内容（用户可控），原样进 v-html 是存储型 XSS
+  const safe = escapeHtml(text)
+  return getWordRegexes(highlightWord).reduce((result, regex) => result.replace(regex, wrap), safe)
 }

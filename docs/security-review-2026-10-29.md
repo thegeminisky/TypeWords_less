@@ -91,6 +91,23 @@
 - node 进程非 root 运行；home 目录 700；敏感数据目录不入 git（`.gitignore` 覆盖 `deploy/data/`、`shots/`、`.env`）。
 - 前端注入面小：全站仅 1 处 `v-html`；门禁页 `noindex`。
 
+## 三·五、修复记录（2026-10-29，除 R1 外全部完成）
+
+| 项 | 修复内容 | 验证 |
+|---|---|---|
+| R2 XSS | `buildHighlightedHtml` 对 text 先做 HTML 实体转义再高亮 | 注入 `<img onerror>` 输出已被转义，高亮 span 正常 |
+| R3 QR 时效 | reveal 加 10 分钟时效（`revealUntil`），超时自动隐藏；**CLI reset-otp 同步带上该字段**（曾漏导致二维码即隐，已修） | 伪造过期时间→隐藏；reset 后连续 GET 稳定可见 |
+| R4 依赖 | axios 1.15.0→1.21.0、node-forge 1.3.1→1.4.2、vue-i18n→11.4.16；pnpm-workspace overrides 强制 @intlify 全链路 ≥11.4.16；audit 135→91（剩余多为 nuxt/vite 构建链传递依赖，部署产物为零依赖静态站，不构成运行时暴露；3 个 critical 均来自 @nuxt/devtools 构建期） | pnpm audit 复核 |
+| R5 reset | `/api/sync/reset` 端点整体移除（前端 resetRemote 本就无调用方） | 登录态下 404 |
+| R6 响应头 | X-Frame-Options: DENY、Referrer-Policy、CSP frame-ancestors 'none'、COOP: same-origin | 线上 curl 实测 4 个头齐全 |
+| R7 DoS | MAX_BODY 32MB→5MB（超限优雅返回 400 而非断连）；/api/sync/* 120 次/分/IP、gate 查询 20 次/分/IP 限速 | 6MB 请求 → 400；正常 upsert 200 |
+| R8 日志 | run.sh 启动时轮转：>10MB 归档，保留 5 份 | bash -n 通过 |
+| R9 自启 | crontab `@reboot` 拉起 run.sh（服务器 crontab 已写入） | crontab -l 确认 |
+| R10 权限 | gate.json/sessions.json 落盘后 chmod 600；服务器存量文件已改 | 线上 -rw------- |
+| R12 run.sh | 移除废弃 GATE_KEY；**set 去掉 pipefail（dash 语义报错导致过一次启动失败）**；`.gitattributes` 强制 *.sh eol=lf（根治 CRLF） | bash -n + 线上启动成功 |
+
+R1（HTTPS）按用户指示暂缓，其余风险均已闭环。
+
 ## 四、修复优先级
 
 | 优先级 | 事项 | 工作量 |

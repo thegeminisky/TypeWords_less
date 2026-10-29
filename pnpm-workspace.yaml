@@ -2,3 +2,10 @@ allowBuilds:
   '@parcel/watcher': true
   esbuild: true
   sharp: true
+
+# 安全：强制 intlify 全链路 ≥11.4.14（GHSA-8rc2-428q-7ww3 修复版）
+overrides:
+  vue-i18n: ^11.4.16
+  '@intlify/core': ^11.4.16
+  '@intlify/core-base': ^11.4.16
+  '@intlify/shared': ^11.4.16

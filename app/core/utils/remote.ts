@@ -141,8 +141,3 @@ export async function upsertSyncRows(rows: RemoteRow[]): Promise<boolean> {
   return !!res?.ok
 }
 
-/** 清空服务端全部档案 */
-export async function resetRemote(): Promise<boolean> {
-  const res = await request<{ ok: boolean }>('/api/sync/reset', { method: 'POST' })
-  return !!res?.ok
-}
