@@ -616,6 +616,9 @@ useEvents([
 @media (max-width: 768px) {
   .practice-word {
     width: 100%;
+    box-sizing: border-box;
+    // 左右各留约一个释义小写字符的边距（.practice-word 的 font-size 就是释义字号）
+    padding: 0 0.5em;
 
     .absolute.z-1.top-4 {
       /* // 提高层级，确保不被遮挡*/

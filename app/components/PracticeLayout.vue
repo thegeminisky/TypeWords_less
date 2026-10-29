@@ -64,11 +64,19 @@ const rootStyle = computed(() => {
     flex: 1 1 auto;
     min-height: 0;
     width: 100%;
-    padding: 0 1rem;
+    padding: 0;
     box-sizing: border-box;
     overflow-y: auto;
+    overflow-x: hidden; // 内容再宽也不出横向滚动条
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
+    // 按需求隐藏滚动条（保留滚动能力）
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
   }
 
   .footer-wrap {

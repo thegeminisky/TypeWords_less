@@ -160,7 +160,7 @@ const stages = computed(() => flowDisplay.value.stages)
   box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
 
   .stage {
-    display: block;
+    // 不能设 display:block，会覆盖 StageProgress 根上的 flex，导致分段堆到第二行
     margin: 0.1rem 0 0.25rem;
   }
 

@@ -142,6 +142,7 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
           input.setAttribute('enterkeyhint', 'done')
           input.tabIndex = -1
           input.setAttribute('aria-hidden', 'true')
+          input.value = ' ' // 常驻占位空格：空输入框上按退格，安卓不会派发任何事件
           Object.assign(input.style, {
             position: 'fixed',
             top: '0',
@@ -165,6 +166,7 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
           document.body.appendChild(input)
         }
         setTimeout(() => {
+          if (!input.value) input.value = ' '
           input.focus({ preventScroll: true } as FocusOptions)
         }, 100)
         return input
@@ -197,12 +199,25 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
         invokeListener(createSyntheticEvent(payload))
       }
 
-      /** 已经派发过的文本，用于和输入框 value 求差集，避免重复计数 */
+      /**
+       * 输入框里常驻一个空格占位（resetCatcher）：
+       * - 软键盘直接上屏时，value = 占位空格 + 新字符，取最后一个字符即可；
+       * - 按退格时删掉的是占位空格，会派发 deleteContentBackward，
+       *   空输入框上按退格安卓什么都不发，这就是「退格删不掉」的根因。
+       * 组合输入（安卓英文也走组合）期间 value 是累积文本，用差集逐字符消费。
+       */
       let consumedText = ''
 
-      const clearCatcher = () => {
+      const resetCatcher = () => {
         consumedText = ''
-        if (hiddenInput.value !== '') hiddenInput.value = ''
+        if (hiddenInput.value !== ' ') hiddenInput.value = ' '
+      }
+
+      const dispatchBackspace = () => {
+        if (emitWindowsKeys.has('Backspace')) return
+        emitInputKeys.add('Backspace')
+        setTimeout(() => emitInputKeys.delete('Backspace'), 30)
+        dispatchSyntheticKey({ key: 'Backspace', code: 'Backspace', keyCode: 8 })
       }
 
       const dispatchText = (text: string) => {
@@ -215,15 +230,9 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
         }
       }
 
-      /**
-       * 消费输入框里的新增文本。
-       *
-       * 安卓输入法（含英文）会把整词累积在 value 里：输入 e→ed→edi…，
-       * 所以每次取和上一次的差集逐字符派发，用户敲一个字母就能立即上屏，
-       * 不必等输入法提交。
-       */
       const consumeValue = () => {
-        const current = hiddenInput.value || ''
+        // 去掉占位空格后再求差集
+        const current = (hiddenInput.value || '').replace(/^ +/, '')
         if (!current) return
         let fresh = ''
         if (current.startsWith(consumedText)) {
@@ -255,7 +264,7 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
         // 提交时补齐还没派发的部分（组合期间已经逐字符派发过，这里通常是空的）
         consumeValue()
         if (!consumedText && event.data) dispatchText(event.data)
-        clearCatcher()
+        resetCatcher()
       }
 
       const handleBeforeInput = (event: InputEvent) => {
@@ -263,20 +272,27 @@ export function useEventListener(type: string, listener: EventListenerOrEventLis
         if (isComposing) return
         if (event.inputType?.startsWith('delete')) {
           event.preventDefault()
-          if (!emitWindowsKeys.has('Backspace')) {
-            emitInputKeys.add('Backspace')
-            setTimeout(() => emitInputKeys.delete('Backspace'), 30)
-            dispatchSyntheticKey({ key: 'Backspace', code: 'Backspace', keyCode: 8 })
-          }
-          clearCatcher()
+          dispatchBackspace()
+          resetCatcher()
         }
       }
 
-      const handleInput = () => {
-        // 组合输入中也照样消费：字母立刻上屏，不会全堆在候选区
-        consumeValue()
-        // 非组合状态（直接输入、粘贴、退格）消费完就清空，避免 value 无限增长
-        if (!isComposing) clearCatcher()
+      const handleInput = (event: InputEvent) => {
+        // 组合输入：value 累积，差集逐字符消费（退格由输入法自己处理）
+        if (isComposing) {
+          consumeValue()
+          return
+        }
+        // 退格 / 删除
+        if (event.inputType?.startsWith('delete')) {
+          dispatchBackspace()
+          resetCatcher()
+          return
+        }
+        // 直接上屏：value = 占位空格 + 新字符，取最后一个
+        const ch = (hiddenInput.value || '').slice(-1)
+        if (ch && ch !== ' ') dispatchText(ch)
+        resetCatcher()
       }
 
       const handleFocusRequest = (event: MouseEvent | TouchEvent) => {
