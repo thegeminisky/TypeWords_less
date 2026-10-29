@@ -15,7 +15,7 @@ import { createReadStream } from 'node:fs'
 const ROOT = path.resolve(process.env.ROOT || path.join(import.meta.dirname, 'web'))
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(import.meta.dirname, 'data'))
 const PORT = Number(process.env.PORT || 8300)
-const HOST = process.env.HOST || '0.0.0.0'
+const HOST = process.env.HOST || '127.0.0.1' // 默认只听本地回环，公网访问请走 SSH 隧道/反代
 const SESSION_TTL = 1000 * 60 * 60 * 24 * 30 // 30 天
 const MAX_BODY = 32 * 1024 * 1024 // 32MB：大词典导入后的同步负载 ~20MB（该接口在登录态之后才读 body）
 

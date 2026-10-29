@@ -8,7 +8,7 @@ cd "$APP_DIR"
 
 export ROOT="$APP_DIR/web"
 export DATA_DIR="$APP_DIR/data"
-export HOST="0.0.0.0"
+export HOST="127.0.0.1"
 export PORT="${PORT:-8300}"
 export NODE_ENV=production
 export NODE_OPTIONS="--max-old-space-size=512"

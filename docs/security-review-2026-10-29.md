@@ -106,7 +106,10 @@
 | R10 权限 | gate.json/sessions.json 落盘后 chmod 600；服务器存量文件已改 | 线上 -rw------- |
 | R12 run.sh | 移除废弃 GATE_KEY；**set 去掉 pipefail（dash 语义报错导致过一次启动失败）**；`.gitattributes` 强制 *.sh eol=lf（根治 CRLF） | bash -n + 线上启动成功 |
 
-R1（HTTPS）按用户指示暂缓，其余风险均已闭环。
+R1（HTTPS）：2026-10-29 起服务端默认改为**只监听 127.0.0.1**（run.sh HOST 与 server.mjs 默认值），
+公网直连已不可达（connection refused），传输层风险随之消除；访问走 SSH 隧道
+（`ssh -N -L 8300:127.0.0.1:8300 aliyun` 后浏览器开 http://127.0.0.1:8300），
+后续如需公网使用再上域名 + Caddy 反代 + HTTPS。其余风险均已闭环。
 
 ## 四、修复优先级
 
