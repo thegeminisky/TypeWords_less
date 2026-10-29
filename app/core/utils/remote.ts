@@ -1,6 +1,6 @@
 /**
  * 服务端接口客户端
- * - 门禁：/api/auth 校验密钥后由服务端下发 HttpOnly Cookie
+ * - 门禁：/api/auth 校验 OTP 后由服务端下发 HttpOnly Cookie
  * - 同步：/api/sync/* 读写服务端全局档案
  *
  * 所有请求都走同源相对路径，不依赖任何第三方服务。
@@ -78,6 +78,11 @@ export async function ensureSession(force = false): Promise<boolean> {
 }
 
 /** 提交密钥；成功返回 true */
+/** 门禁页：首次部署/重置后服务端会明文返回一次 OTP，之后为 null */
+export async function getGateOtp(): Promise<{ otp: string | null; length: number }> {
+  return request('/api/auth/gate')
+}
+
 export async function login(key: string): Promise<boolean> {
   try {
     await request<{ ok: boolean }>('/api/auth', {
