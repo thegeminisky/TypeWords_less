@@ -43,10 +43,6 @@ const settingStore = useSettingStore()
       <Switch v-model="settingStore.showEtymologyAndRelWords" />
     </SettingItem>
 
-    <SettingItem title="显示练习引导">
-      <Switch v-model="settingStore.showUsageTips" />
-    </SettingItem>
-
     <SettingItem title="总是显示笔记" desc="关闭后，只会在跟写时显示">
       <Switch v-model="settingStore.alwaysShowNote" />
     </SettingItem>

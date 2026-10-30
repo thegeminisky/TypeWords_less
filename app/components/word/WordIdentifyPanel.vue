@@ -12,10 +12,9 @@ import { getDefaultWord } from '@/core/types/func.ts'
 import { ShortcutKey } from '@/core/types/enum.ts'
 import { useSettingStore } from '@/core/stores/setting.ts'
 import { useEvents, useEventsByWatch } from '@/core/utils/eventBus.ts'
-import { BaseButton, Switch, ToastComponent, Tooltip } from '@/base'
+import { BaseButton, Switch, Tooltip } from '@/base'
 import TranslationList from '@/components/word/TranslationList.vue'
 import { useI18n } from 'vue-i18n'
-import { useBaseStore } from '@/core/stores/base.ts'
 
 const { t: $t } = useI18n()
 
@@ -38,7 +37,6 @@ const emit = defineEmits<{
   complete: []
 }>()
 
-const store = useBaseStore()
 const settingStore = useSettingStore()
 let completeSelect = $ref(false)
 let selectIndex = $ref(-1)
@@ -82,33 +80,8 @@ useEventsByWatch(
   ],
   () => settingStore.showWordQuestion
 )
-
-const text = $computed(() => {
-  if (!completeSelect) {
-    return '请选择 或 直接拼写'
-  } else {
-    if (isCorrect) {
-      return '按空格键继续'
-    } else {
-      return '请输入单词'
-    }
-  }
-})
 </script>
-
 <template>
-  <!-- 提示 Toast -->
-  <div class="center mt-3" v-if="settingStore.showUsageTips">
-    <ToastComponent
-      :duration="0"
-      :anim="false"
-      :shadow="false"
-      :message="text"
-      :showClose="store.sdict.statistics.length > 2"
-      @close="settingStore.showUsageTips = false"
-    />
-  </div>
-
   <div class="mt-4 flex gap-2 relative w-full center">
     <Tooltip>
       <IconFluentQuestionCircle20Regular class="absolute left-0 bottom-0 opacity-50" width="24" />

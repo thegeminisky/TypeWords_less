@@ -9,7 +9,6 @@ import { onUnmounted, watch } from 'vue'
 import Space from '@/components/practice-sentences/Space.vue'
 import { _nextTick, last } from '@/core/utils'
 import { useOnKeyboardEventListener } from '@/core/hooks/event.ts'
-import { Toast } from '@/base'
 import { usePracticeWordTyping } from '@/core/composables/practice-words/usePracticeWordTyping.ts'
 
 interface IProps {
@@ -53,10 +52,8 @@ const typing = usePracticeWordTyping({
   onComplete: () => emit('complete'),
   onWrong: () => emit('wrong'),
   onPlay: trigger => emit('play', trigger),
-  onNotice: notice =>
-    Toast.info($t(notice.type === 'delete-reinput' ? 'press_delete_reinput' : 'press_space_continue'), {
-      duration: 2000,
-    }),
+  // 不再弹「按空格键继续 / 请按删除键重新输入」提示：手机端这类浮层只会挡视线
+  onNotice: () => {},
   playBeep,
   playCorrect,
   playKeyboardAudio,
@@ -176,7 +173,7 @@ defineExpose({
         {{ word.word }}
       </div>
       <div
-        class="mt-2 min-w-120 pb-1 dictation"
+        class="mt-2 pb-1 dictation"
         :style="{ minHeight: wordFontSize + 'px' }"
         :class="showWordResult ? (isWordCorrect ? 'right' : 'wrong') : ''"
       >
@@ -224,7 +221,19 @@ defineExpose({
 
 <style scoped lang="scss">
 .dictation {
+  box-sizing: border-box;
+  // 桌面端保留下划线 480px 的观感；窄屏不再强制最小宽度，
+  // 由父容器（单词本身的宽度）决定，否则 480px 会超出手机屏幕，
+  // 把输入区推到画面外（左侧字母被裁掉）
+  width: 100%;
+  min-width: 30rem;
+  max-width: 100%;
   border-bottom: 2px solid gray;
+  overflow-wrap: anywhere;
+
+  @media (max-width: 768px) {
+    min-width: 0;
+  }
 }
 
 .typing-core {

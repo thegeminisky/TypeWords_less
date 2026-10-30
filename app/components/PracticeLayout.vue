@@ -6,7 +6,7 @@ import { useVirtualKeyboard } from '@/core/composables/useVirtualKeyboard.ts'
 defineProps<{}>()
 
 const isNarrowScreen = useMediaQuery('(max-width: 768px)')
-const { viewportHeight } = useVirtualKeyboard()
+const { viewportHeight, keyboardOpen } = useVirtualKeyboard()
 
 /**
  * 手机端把整个练习区固定成「可视视口高度」的纵向 flex：
@@ -20,7 +20,7 @@ const rootStyle = computed(() => {
 </script>
 
 <template>
-  <div class="practice-layout" :style="rootStyle">
+  <div class="practice-layout" :class="{ 'keyboard-open': keyboardOpen }" :style="rootStyle">
     <div class="wrap" id="PracticeArea">
       <slot name="practice"></slot>
     </div>
@@ -83,6 +83,19 @@ const rootStyle = computed(() => {
     position: static;
     flex: 0 0 auto;
     padding: 0 0.5rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  /**
+   * 软键盘弹出时页脚贴住键盘上沿。
+   *
+   * 容器高度已经等于 visualViewport 高度（键盘上沿），但底部安全区
+   * （env(safe-area-inset-bottom)）在键盘弹出后仍然返回系统手势条的
+   * 高度（本机实测约 35px），再叠加 0.6rem 留白，就会在进度条和键盘
+   * 上沿之间露出一条网页背景色空隙。键盘已经盖住那块区域，这里直接
+   * 把留白清零，进度条紧贴可视范围最底部。
+   */
+  .practice-layout.keyboard-open .footer-wrap {
+    padding-bottom: 0;
   }
 }
 

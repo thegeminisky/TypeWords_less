@@ -27,7 +27,7 @@ import { useMediaQuery } from '@vueuse/core'
 import { EventKey, useEvents } from '@/core/utils/eventBus.ts'
 import { computed, ref, watch } from 'vue'
 import WordLookupPopover from '@/components/word/WordLookupPopover.vue'
-import { BaseButton, BaseIcon, Textarea, Toast, ToastComponent, Tooltip, VolumeIcon } from '@/base'
+import { BaseButton, BaseIcon, Textarea, Toast, Tooltip, VolumeIcon } from '@/base'
 import { useI18n } from 'vue-i18n'
 import { useWordOptions } from '@/core/hooks/dict.ts'
 import { openWordCollectPicker } from '@/core/hooks/useWordCollectPicker.ts'
@@ -233,33 +233,6 @@ function onIdentifyUnknown() {
 function onIdentifyMastered() {
   emit('mastered')
 }
-
-// ============ 提示 Toast ============
-
-const notice = $computed(() => {
-  let text = ''
-  let show = false
-  if (props.practiceType === WordPracticeType.Identify) {
-    if (showWordResult) {
-      text = typingCoreRef?.isWordRight() ? '按空格键继续' : '请拼写单词'
-      show = true
-    }
-  } else if (props.practiceType === WordPracticeType.Listen) {
-    if (showWordResult) {
-      text = '按空格键继续'
-      show = true
-    }
-  } else if (props.practiceType === WordPracticeType.Dictation) {
-    text = showWordResult
-      ? typingCoreRef?.isWordRight()
-        ? '按空格键继续'
-        : $t('press_delete_reinput')
-      : '按空格键完成默写'
-    show = true
-  }
-  // 跟写 / 拼写模式不加提示框：输入完按空格是默认行为，提示反而干扰视线
-  return { show, text }
-})
 
 // ============ 重置：单词切换时 reset identify / note 状态 ============
 
@@ -483,18 +456,7 @@ useEvents([
         <div class="line-white my-3"></div>
       </template>
 
-      <!-- 提示 Toast -->
-      <div class="center mt-3" v-if="notice.show && settingStore.showUsageTips">
-        <ToastComponent
-          :duration="0"
-          confirm
-          :anim="false"
-          :shadow="false"
-          :message="notice.text"
-          :showClose="store.sdict.statistics.length > 2"
-          @close="settingStore.showUsageTips = false"
-        />
-      </div>
+      <!-- 提示 Toast：已按需求全局移除「按空格键继续」提示框 -->
 
       <!-- 自测 UI -->
       <WordIdentifyPanel
@@ -544,6 +506,8 @@ useEvents([
     line-height: 1;
     font-family: var(--en-article-family);
     letter-spacing: 0.3rem;
+    // 兜底：任何模式下单词区都不能超出容器（手机端靠它保证不出横向溢出）
+    max-width: 100%;
   }
 
   .is-wrong {
