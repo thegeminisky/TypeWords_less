@@ -39,6 +39,7 @@ import {
   useNav,
 } from '@/core/utils'
 import { getPracticeWordCacheLocal } from '@/core/utils/cache.ts'
+import { markDictWordsDirty, useDictWords } from '@/core/composables/useDictWords.ts'
 import saveAs from 'file-saver'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -157,7 +158,10 @@ function syncDictInMyStudyList(study = false) {
     const originalId = runtimeStore.editDict.id
 
     runtimeStore.editDict.words = allList
-    let temp = ensureCustomDictCopy(runtimeStore.editDict)
+    // 自定义词典保持原 id：id 一变，词表要换一份存、练习链接也会失效
+    let temp = runtimeStore.editDict.custom
+      ? getDefaultDict(runtimeStore.editDict)
+      : ensureCustomDictCopy(runtimeStore.editDict)
     let rIndex = base.word.bookList.findIndex(v => v.id === originalId)
     temp.length = temp.words.length
     runtimeStore.editDict = temp
@@ -168,6 +172,8 @@ function syncDictInMyStudyList(study = false) {
       base.word.bookList.push(getDefaultDict(temp))
       if (study) base.word.studyIndex = base.word.bookList.length - 1
     }
+    // 词表单独同步：这里只打标记，真正上传在下次存档前
+    markDictWordsDirty(temp.id)
     tableRef.value.getData()
   }, 100)
 }
@@ -292,6 +298,8 @@ function createCopy() {
   isAdd = true
 }
 
+const { ensureWords } = useDictWords()
+
 onMounted(async () => {
   if (route.query?.isAdd) {
     isAdd = true
@@ -319,8 +327,13 @@ onMounted(async () => {
           runtimeStore.editDict = dict
         }
         runtimeStore.editDict.length = dict.words.length
+      } else if (!runtimeStore.editDict.words.length) {
+        // 自建词典 / 收藏：词表存在服务端 words/<id>.json，按需拉取
+        loading = true
+        await ensureWords(runtimeStore.editDict)
+        runtimeStore.editDict.length = runtimeStore.editDict.words.length
+        loading = false
       }
-      loading = false
     }
   }
 

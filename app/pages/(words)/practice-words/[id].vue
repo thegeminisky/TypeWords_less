@@ -37,6 +37,7 @@ import type { PracticeNotifier } from '@/core/composables/practice-words/practic
 import { usePracticeWordSession } from '@/core/composables/practice-words/usePracticeWordSession.ts'
 import { useMediaQuery } from '@vueuse/core'
 import { useVirtualKeyboard } from '@/core/composables/useVirtualKeyboard.ts'
+import { useDictWords } from '@/core/composables/useDictWords.ts'
 
 const settingStore = useSettingStore()
 const runtimeStore = useRuntimeStore()
@@ -47,6 +48,7 @@ const store = useBaseStore()
 const statStore = usePracticeStore()
 const dataSync = useDataSyncPersistence()
 const wordPersistence = usePracticeWordPersistence()
+const { ensureWords } = useDictWords()
 const onboardingHostRef = ref<InstanceType<typeof PracticeOnboardingHost>>()
 
 /** 结算时等待远端写入的上限（毫秒）；超时只影响云同步，不影响本地记录 */
@@ -270,8 +272,9 @@ async function loadDict() {
     let dict_list = await r.json()
     if (!dict) dict = dict_list.flat().find(v => v.id === dictId) as Dict
     if (dict && dict.id) {
-      //如果是不是自定义词典，就请求数据
+      //官方词典从静态资源取词表，自建词典/收藏从服务端 words/<id>.json 取
       if (!dict.custom) dict = await _getDictDataByUrl(dict)
+      else await ensureWords(dict)
       if (!dict.words.length) {
         router.push('/words')
         return Toast.warning('没有单词可学习！')

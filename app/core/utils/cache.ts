@@ -1,7 +1,7 @@
 import type { PracticeData, TaskWords } from '../types'
 import { WordPracticeMode, WordPracticeStage, WordPracticeType } from '../types/enum'
 import type { PracticeState } from '../stores'
-import { get, set } from 'idb-keyval'
+import { del, get, set } from 'idb-keyval'
 
 type CacheConfig = { key: string; version: number }
 
@@ -307,4 +307,50 @@ export async function setPracticeArticleCacheLocal(
   updated_at?: string
 ): Promise<void> {
   await setLocal(PRACTICE_ARTICLE_CACHE, cache, updated_at)
+}
+
+// ---------------- 词典词表本地缓存 ----------------
+// 词表不再随同步行下发，打开词典时先看本地缓存，未命中再向服务端要。
+// key 按词典 id 分片，值里带 updated_at，与词典元数据的 wordsUpdatedAt 对齐即可复用。
+
+const DICT_WORDS_KEY_PREFIX = 'type-words-dict-words:'
+
+function dictWordsKey(id: string): string {
+  return `${DICT_WORDS_KEY_PREFIX}${id}`
+}
+
+export type DictWordsCache = {
+  words: unknown[]
+  updated_at?: string
+}
+
+export async function getDictWordsLocal(id: string): Promise<DictWordsCache | null> {
+  if (!id) return null
+  try {
+    const raw = await get(dictWordsKey(id))
+    if (!raw) return null
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+    if (!parsed || !Array.isArray(parsed.words)) return null
+    return { words: parsed.words, updated_at: parsed.updated_at }
+  } catch {
+    return null
+  }
+}
+
+export async function setDictWordsLocal(id: string, words: unknown[], updated_at?: string): Promise<void> {
+  if (!id) return
+  try {
+    await set(dictWordsKey(id), JSON.stringify({ words, updated_at }))
+  } catch (error) {
+    console.warn('[dict-words] 本地词表缓存写入失败', error)
+  }
+}
+
+export async function delDictWordsLocal(id: string): Promise<void> {
+  if (!id) return
+  try {
+    await del(dictWordsKey(id))
+  } catch {
+    /* 忽略 */
+  }
 }

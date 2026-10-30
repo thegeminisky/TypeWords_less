@@ -3,6 +3,7 @@ import { debounce } from '../utils'
 import type { BaseState, SettingState } from '../stores'
 import { useBaseStore, useRuntimeStore, useSettingStore } from '../stores'
 import { ensureHashGuardBeforeInit, useDataSyncPersistence } from './useDataSyncPersistence'
+import { useDictWords } from './useDictWords'
 import { SyncDataType } from '../types'
 import type { SubscriptionCallbackMutation } from 'pinia'
 import { onUnmounted } from 'vue'
@@ -15,6 +16,7 @@ export function useInit() {
   const settingStore = useSettingStore()
   const runtimeStore = useRuntimeStore()
   const dataSync = useDataSyncPersistence()
+  const { ensureWords } = useDictWords()
   let initializing = false // 标记是否正在初始化
   let focus = true
   let fetching = false
@@ -63,6 +65,10 @@ export function useInit() {
       [SyncDataType.dict]: dictData,
       [SyncDataType.setting]: settingData,
     })
+    // 收藏词典的词表也存在服务端 words/<id>.json，这里补一次：
+    // 收藏按钮的选中态、收藏词列表都依赖它
+    await ensureWords(store.collectWord)
+
     settingStore.load = true
     store.load = true
     console.timeEnd('init')

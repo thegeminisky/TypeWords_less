@@ -162,3 +162,37 @@ export async function upsertSyncRows(rows: RemoteRow[]): Promise<boolean> {
   return !!res?.ok
 }
 
+/**
+ * 词典词表（独立于同步行）。
+ * 同步行里只放词典元数据，词表按需拉取/推送，避免每次存档都搬十几 MB。
+ */
+export type DictWordsResult = {
+  ok: boolean
+  words: unknown[] | null
+  updated_at: string | null
+}
+
+export async function fetchDictWords(id: string): Promise<DictWordsResult> {
+  return request<DictWordsResult>(`/api/dict/words?id=${encodeURIComponent(id)}`)
+}
+
+export async function pushDictWords(
+  id: string,
+  words: unknown[]
+): Promise<{ ok: boolean; updated_at?: string; count?: number }> {
+  return request<{ ok: boolean; updated_at?: string; count?: number }>('/api/dict/words', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ id, words }),
+    timeout: UPLOAD_TIMEOUT,
+  })
+}
+
+export async function deleteDictWords(id: string): Promise<void> {
+  try {
+    await request(`/api/dict/words?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+  } catch (error) {
+    console.warn('[dict-words] 远端词表删除失败', error)
+  }
+}
+

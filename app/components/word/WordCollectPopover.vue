@@ -38,10 +38,10 @@ function adjustPosition() {
   })
 }
 
-function selectDict(dict: Dict) {
+async function selectDict(dict: Dict) {
   const word = wordCollectPickerState.word
   if (!word) return
-  const result = addWordToDict(word, dict)
+  const result = await addWordToDict(word, dict)
   if (result.ok) {
     Toast.success($t('add_success'))
     closeWordCollectPicker()

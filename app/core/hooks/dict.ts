@@ -3,6 +3,7 @@ import { getDefaultDict, getDefaultWord } from '../types'
 import { useBaseStore } from '../stores/base.ts'
 import { useSettingStore } from '../stores/setting.ts'
 import { cloneDeep, shuffle } from '../utils'
+import { markDictWordsDirty, useDictWords } from '../composables/useDictWords.ts'
 import { DictId } from '../config/env.ts'
 import dayjs from 'dayjs'
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore'
@@ -11,12 +12,15 @@ dayjs.extend(isSameOrBefore)
 
 export function useWordOptions() {
   const store = useBaseStore()
+  const { ensureWords } = useDictWords()
 
   function isWordCollect(val: Word) {
     return !!store.collectWord.words.find(v => v.word.toLowerCase() === val.word.toLowerCase())
   }
 
-  function toggleWordCollect(val: Word) {
+  async function toggleWordCollect(val: Word) {
+    // 词表按需拉取：先确保收藏词典的词已就位，否则会把远端整份收藏覆盖成一条
+    await ensureWords(store.collectWord)
     let rIndex = store.collectWord.words.findIndex(v => v.word.toLowerCase() === val.word.toLowerCase())
     if (rIndex > -1) {
       store.collectWord.words.splice(rIndex, 1)
@@ -24,6 +28,7 @@ export function useWordOptions() {
       store.collectWord.words.push(val)
     }
     store.collectWord.length = store.collectWord.words.length
+    markDictWordsDirty(store.collectWord.id)
   }
 
   function getCollectibleDicts(excludeDictId?: string) {
@@ -38,12 +43,14 @@ export function useWordOptions() {
     return store.word.bookList.find(d => isDictIdMatch(d, dict.id)) ?? dict
   }
 
-  function addWordToDict(val: Word, dict: Dict): { ok: boolean } {
+  async function addWordToDict(val: Word, dict: Dict): Promise<{ ok: boolean }> {
     const target = resolveDictInBookList(dict)
+    await ensureWords(target)
     const rIndex = target.words.findIndex(v => v.word.toLowerCase() === val.word.toLowerCase())
     if (rIndex > -1) return { ok: false }
     target.words.push(val)
     target.length = target.words.length
+    markDictWordsDirty(target.id)
     return { ok: true }
   }
 

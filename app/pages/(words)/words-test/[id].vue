@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, toRaw } from 'vue'
 import { BaseButton, BaseIcon, BasePage, Toast, VolumeIcon } from '@/base'
 import { useRoute, useRouter } from 'vue-router'
 import { useBaseStore } from '@/core/stores/base.ts'
+import { useDictWords } from '@/core/composables/useDictWords.ts'
 import type { Dict, Question, TaskWords, Word } from '@/core/types/types.ts'
 import { _getDictDataByUrl, shuffle, useNav } from '@/core/utils'
 import { useRuntimeStore } from '@/core/stores/runtime.ts'
@@ -19,6 +20,7 @@ import { closeWordCollectPicker, openWordCollectPicker } from '@/core/hooks/useW
 const route = useRoute()
 const router = useRouter()
 const base = useBaseStore()
+const { ensureWords } = useDictWords()
 const runtimeStore = useRuntimeStore()
 const playBeep = usePlayBeep()
 const playCorrect = usePlayCorrect()
@@ -51,8 +53,8 @@ async function init() {
   if (!d?.id) return router.push('/words')
   if (!d.words.length && runtimeStore.editDict?.id === d.id) {
     loading = true
-    let r = await _getDictDataByUrl(runtimeStore.editDict)
-    d = r
+    // 官方词典走静态资源；自建词典 / 收藏走服务端词表
+    d = d.custom || d.system ? await ensureWords(d) : await _getDictDataByUrl(runtimeStore.editDict)
     loading = false
   }
   dict = d

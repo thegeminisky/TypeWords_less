@@ -22,6 +22,9 @@ const MAX_BODY = 32 * 1024 * 1024 // 32MB：大词典导入后的同步负载 ~2
 const STATE_FILE = path.join(DATA_DIR, 'state.json')
 const SESSION_FILE = path.join(DATA_DIR, 'sessions.json')
 const GATE_FILE = path.join(DATA_DIR, 'gate.json')
+/** 词典词表单独落盘：<DATA_DIR>/words/<dictId>.json
+ *  同步行（state.json 里的 dict）只保留元数据，避免每次存档都搬 15MB 词表 */
+const WORDS_DIR = path.join(DATA_DIR, 'words')
 const SYNC_TYPES = ['dict', 'setting', 'practice_word', 'practice_article']
 
 const MIME = {
@@ -327,6 +330,72 @@ function persistState() {
   return stateWriteChain
 }
 
+// ---------------- 词典词表（独立文件） ----------------
+
+/** 词典 id 只允许安全字符，避免路径穿越 */
+function isSafeDictId(id) {
+  return typeof id === 'string' && /^[\w-]{1,80}$/.test(id)
+}
+
+function wordsFilePath(id) {
+  return path.join(WORDS_DIR, `${id}.json`)
+}
+
+async function readWordsFile(id) {
+  if (!isSafeDictId(id)) return null
+  try {
+    const parsed = JSON.parse(await fsp.readFile(wordsFilePath(id), 'utf8'))
+    if (!parsed || !Array.isArray(parsed.words)) return null
+    return { words: parsed.words, updated_at: parsed.updated_at || null }
+  } catch {
+    return null
+  }
+}
+
+async function writeWordsFile(id, words) {
+  const updated_at = new Date().toISOString()
+  const file = wordsFilePath(id)
+  await fsp.mkdir(WORDS_DIR, { recursive: true })
+  // 覆盖前留一份上一版，万一客户端推了空数组还能捞回来
+  try {
+    await fsp.copyFile(file, `${file}.bak`)
+  } catch {
+    /* 首次写入没有旧文件 */
+  }
+  await atomicWrite(file, JSON.stringify({ id, updated_at, words }))
+  return updated_at
+}
+
+async function removeWordsFile(id) {
+  if (!isSafeDictId(id)) return
+  await fsp.rm(wordsFilePath(id), { force: true }).catch(() => {})
+  await fsp.rm(`${wordsFilePath(id)}.bak`, { force: true }).catch(() => {})
+}
+
+/**
+ * 启动时把历史存档里内联的词典词表拆到 words/ 目录。
+ * 老版本把整份词表塞在 dict 同步行里（实测 15MB），拆完同步行只剩几十 KB。
+ */
+async function splitInlineDictWords() {
+  const list = state?.dict?.data?.word?.bookList
+  if (!Array.isArray(list)) return
+  let changed = 0
+  for (const dict of list) {
+    if (!dict || !Array.isArray(dict.words) || !dict.words.length) continue
+    const id = String(dict.id ?? '')
+    if (!isSafeDictId(id)) continue
+    const updated_at = await writeWordsFile(id, dict.words)
+    dict.length = dict.words.length
+    dict.wordsUpdatedAt = updated_at
+    dict.words = []
+    changed++
+  }
+  if (changed) {
+    await persistState()
+    console.log(`[typewords] 已把 ${changed} 本词典的词表拆到 ${WORDS_DIR}`)
+  }
+}
+
 // ---------------- HTTP 工具 ----------------
 
 // 全站基础安全响应头（HTTPS 上线后再补 HSTS）
@@ -526,6 +595,46 @@ async function handleApi(req, res, url) {
   // 以下接口都需要登录
   if (!getSession(req)) return json(res, 401, { ok: false, error: 'UNAUTHORIZED' })
 
+  // 词典词表：独立资源，按需读写，避免整份存档搬大词表
+  if (p === '/api/dict/words') {
+    const ip = req.socket.remoteAddress || 'unknown'
+    if (!hitRateLimit(`dictwords:${ip}`, 120, 60 * 1000)) {
+      return json(res, 429, { ok: false, error: 'TOO_MANY_REQUESTS' })
+    }
+
+    if (req.method === 'GET') {
+      const id = url.searchParams.get('id') || ''
+      if (!isSafeDictId(id)) return json(res, 400, { ok: false, error: 'BAD_ID' })
+      const found = await readWordsFile(id)
+      return json(res, 200, { ok: true, words: found?.words ?? null, updated_at: found?.updated_at ?? null })
+    }
+
+    if (req.method === 'POST') {
+      let body
+      try {
+        body = await readJson(req)
+      } catch {
+        return json(res, 400, { ok: false, error: 'BAD_REQUEST' })
+      }
+      const id = String(body?.id ?? '')
+      const words = body?.words
+      if (!isSafeDictId(id) || !Array.isArray(words)) {
+        return json(res, 400, { ok: false, error: 'BAD_REQUEST' })
+      }
+      const updated_at = await writeWordsFile(id, words)
+      return json(res, 200, { ok: true, updated_at, count: words.length })
+    }
+
+    if (req.method === 'DELETE') {
+      const id = url.searchParams.get('id') || ''
+      if (!isSafeDictId(id)) return json(res, 400, { ok: false, error: 'BAD_ID' })
+      await removeWordsFile(id)
+      return json(res, 200, { ok: true })
+    }
+
+    return json(res, 405, { ok: false, error: 'METHOD_NOT_ALLOWED' })
+  }
+
   // 同步接口整体限速：120 次/分钟/IP
   if (p.startsWith('/api/sync/') && !hitRateLimit(`sync:${req.socket.remoteAddress}`, 120, 60 * 1000)) {
     return json(res, 429, { ok: false, error: 'TOO_MANY_REQUESTS' })
@@ -650,6 +759,7 @@ async function main() {
   await fsp.mkdir(DATA_DIR, { recursive: true })
   loadState()
   loadSessions()
+  await splitInlineDictWords()
   server.listen(PORT, HOST, () => {
     console.log(`[typewords] static ${ROOT}`)
     console.log(`[typewords] data   ${DATA_DIR}`)

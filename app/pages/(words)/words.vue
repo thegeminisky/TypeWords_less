@@ -61,11 +61,13 @@ import {
 import dayjs from 'dayjs'
 import { getActiveCustomFlowId, getUserFlow } from '@/core/composables/practice-words/practice-flow-runtime.ts'
 import { createStudyTask } from '@/core/composables/practice-words/study-task.ts'
+import { useDictWords } from '@/core/composables/useDictWords.ts'
 
 const store = useBaseStore()
 const settingStore = useSettingStore()
 const wordPersistence = usePracticeWordPersistence()
 const dataSync = useDataSyncPersistence()
+const { ensureWords, dropWords } = useDictWords()
 const router = useRouter()
 const { nav } = useNav()
 const runtimeStore = useRuntimeStore()
@@ -243,6 +245,11 @@ async function init() {
         await resetCacheData()
       }
     }
+  }
+
+  // 词表不随同步行下发：先把当前词典的词表补齐，再算今日任务
+  if (store.sdict?.id && !store.sdict.words.length) {
+    await ensureWords(store.sdict)
   }
 
   if (!practiceData?.taskWords.new.length && store.sdict.words.length) {
@@ -464,6 +471,7 @@ async function handleBatchDel() {
         store.word.studyIndex--
       }
       store.word.bookList.splice(r, 1)
+      void dropWords(id)
     }
   })
   selectIds = []

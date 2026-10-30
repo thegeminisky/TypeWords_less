@@ -82,7 +82,11 @@ function stripLegacyVirtualDicts(state: BaseState): boolean {
   if (next.length === list.length) return false
 
   state.word.bookList = next
-  if (!current) return true
+  if (!current) {
+    // studyIndex 原本就越界（历史数据/指向已删词典），重置为未选择
+    state.word.studyIndex = -1
+    return true
+  }
   if (LEGACY_VIRTUAL_DICT_IDS.includes(normalizeDictId(current.enName || current.id) as any)) {
     state.word.studyIndex = -1
     return true
@@ -262,13 +266,26 @@ export async function checkAndUpgradeSaveSetting(val: any) {
   return defaultState
 }
 
-//筛选未自定义的词典，未自定义的词典不需要保存单词，用的时候再下载
+/**
+ * 生成用于同步 / 本地落盘的轻量快照。
+ *
+ * 词表已改为按词典单独存（服务端 words/<id>.json + 本地 idb 缓存），
+ * 这里一律剔除 words，只保留长度、进度、统计等元数据；
+ * 顺带省掉了原来对整份 state（含上万词条）的 cloneDeep。
+ */
 export function shakeCommonDict(n: BaseState): BaseState {
-  let data: BaseState = cloneDeep(n)
-  data.word.bookList.map((v: Dict) => {
-    if (!v.custom && !v.system) v.words = []
-  })
-  return data
+  const bookList = (n.word?.bookList ?? []).map(dict => ({
+    ...dict,
+    words: [],
+    statistics: Array.isArray(dict.statistics) ? [...dict.statistics] : [],
+  }))
+  return {
+    ...n,
+    word: { ...n.word, bookList },
+    fsrsData: { ...n.fsrsData },
+    noteData: { ...n.noteData },
+    simpleWords: Array.isArray(n.simpleWords) ? [...n.simpleWords] : [],
+  } as BaseState
 }
 
 export function isMobile(): boolean {

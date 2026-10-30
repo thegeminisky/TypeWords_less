@@ -131,6 +131,8 @@ export interface Dict extends DictResource {
   system?: boolean //是否是系统虚拟词典（目前只剩「收藏」），可编辑词条但不能改名，不显示tag
   sourceId?: string //如果是官方资源副本，这里记录原始官方资源 id
   complete: boolean //是否学习完成，学完了设为true，然后lastLearnIndex重置
+  /** 词表在服务端 words/ 目录的版本时间戳；用于判断本地缓存是否还新鲜 */
+  wordsUpdatedAt?: string
   //后端字段
   enName?: string
   createdBy?: string

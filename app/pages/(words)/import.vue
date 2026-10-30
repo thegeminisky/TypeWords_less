@@ -15,6 +15,7 @@ import { useRuntimeStore } from '@/core/stores/runtime.ts'
 import { getDefaultDict, getDefaultWord } from '@/core/types/func.ts'
 import type { Dict, Word, WordSubContent } from '@/core/types/types.ts'
 import { useNav } from '@/core/utils'
+import { markDictWordsDirty, useDictWords } from '@/core/composables/useDictWords.ts'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -25,6 +26,7 @@ const runtimeStore = useRuntimeStore()
 const route = useRoute()
 const router = useRouter()
 const { nav } = useNav()
+const { ensureWords } = useDictWords()
 
 const target = ref<Dict | null>(null)
 const fileRef = ref<HTMLInputElement>()
@@ -37,7 +39,7 @@ const result = ref<{ added: number; skipped: number; failed: string[] } | null>(
 const failedSamples = ref<string[]>([])
 const skipDuplicate = ref(true)
 
-onMounted(() => {
+onMounted(async () => {
   const targetId = String(route.query?.targetId ?? '')
   const found = base.word.bookList.find(v => v.id === targetId)
   if (!found) {
@@ -50,6 +52,8 @@ onMounted(() => {
     router.replace('/dict-list')
     return
   }
+  // 词表按需拉取，导入是"追加"，必须先把已有词读回来
+  await ensureWords(found)
   target.value = found
 })
 
@@ -168,6 +172,8 @@ async function doImport() {
       const idx = base.word.bookList.findIndex(v => v.id === next.id)
       if (idx > -1) base.word.bookList[idx] = next
       else base.word.bookList.push(next)
+      // 词表单独同步：标记待上传，下一次存档前推到服务端
+      markDictWordsDirty(next.id)
       // 同步到当前编辑上下文，供「查看词典」直接打开
       runtimeStore.editDict = next
     }

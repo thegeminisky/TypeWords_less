@@ -5,6 +5,7 @@ import {
   shakeCommonDict,
   shouldFetchRemote,
 } from '../utils'
+import { useDictWords } from './useDictWords'
 import {
   getPracticeWordCacheLocal,
   getPracticeWordCacheLocalWithMeta,
@@ -283,6 +284,7 @@ export async function saveHashSnapshot(currentHash: string, previousHash: string
 
 export function useDataSyncPersistence() {
   const store = useBaseStore()
+  const { flushDirtyWords, dropWords } = useDictWords()
   const settingStore = useSettingStore()
 
   /** 仅在服务端数据更新时拉取 */
@@ -426,6 +428,8 @@ export function useDataSyncPersistence() {
   }
 
   async function saveDictState(state: BaseState = store.$state, options?: SaveLocalAndSyncOptions) {
+    // 先把改动过的词表单独推到 /api/dict/words，同步行里只带元数据
+    await flushDirtyWords()
     const data = shakeCommonDict(state)
     await saveLocalAndSync(SyncDataType.dict, data, options)
   }
@@ -438,6 +442,7 @@ export function useDataSyncPersistence() {
 
   /** 清空全部进度：本地 + 服务端 */
   async function clear() {
+    const wordDictIds = store.word.bookList.map(dict => String(dict.id)).filter(Boolean)
     const d = getDefaultBaseState()
     d.load = true
     const d1 = getDefaultSettingState()
@@ -451,6 +456,8 @@ export function useDataSyncPersistence() {
     }
     store.setState(d)
     settingStore.setState(d1)
+    // 词表单独存放在服务端 words/ 目录，整份重置时一并清掉
+    for (const id of wordDictIds) await dropWords(id)
     return await forcePushLocalDataToRemote(data)
   }
 
