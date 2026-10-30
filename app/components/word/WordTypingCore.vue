@@ -230,6 +230,8 @@ defineExpose({
   max-width: 100%;
   border-bottom: 2px solid gray;
   overflow-wrap: anywhere;
+  // 输入内容居中，和上方的单词/下划线对齐（默写时视觉重心在中间）
+  text-align: center;
 
   @media (max-width: 768px) {
     min-width: 0;
