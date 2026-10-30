@@ -26,36 +26,6 @@ export function useWordOptions() {
     store.collectWord.length = store.collectWord.words.length
   }
 
-  function isWordSimple(val: Word) {
-    return !!store.knownWordsSet.has(val.word.toLowerCase())
-  }
-
-  function toggleWordSimple(val: Word) {
-    let rIndex = store.knownWords.findIndex(v => v === val.word.toLowerCase())
-    if (rIndex > -1) {
-      store.known.words.splice(rIndex, 1)
-    } else {
-      store.known.words.push(val)
-    }
-    store.known.length = store.known.words.length
-  }
-
-  function delWrongWord(val: Word) {
-    let rIndex = store.wrong.words.findIndex(v => v.word.toLowerCase() === val.word.toLowerCase())
-    if (rIndex > -1) {
-      store.wrong.words.splice(rIndex, 1)
-    }
-    store.wrong.length = store.wrong.words.length
-  }
-
-  function delSimpleWord(val: Word) {
-    let rIndex = store.known.words.findIndex(v => v.word.toLowerCase() === val.word.toLowerCase())
-    if (rIndex > -1) {
-      store.known.words.splice(rIndex, 1)
-    }
-    store.known.length = store.known.words.length
-  }
-
   function getCollectibleDicts(excludeDictId?: string) {
     return store.word.bookList.filter(dict => {
       if (dict.id !== DictId.wordCollect && !dict.custom) return false
@@ -101,10 +71,6 @@ export function useWordOptions() {
     getCollectibleDicts,
     addWordToDict,
     createCustomDict,
-    isWordSimple,
-    toggleWordSimple,
-    delWrongWord,
-    delSimpleWord,
   }
 }
 
@@ -122,8 +88,8 @@ export function getCurrentStudyWord(): TaskWords {
 
   if (words?.length) {
     const settingStore = useSettingStore()
-    //忽略列表：简单词或已掌握
-    const ignoreSet = [store.allIgnoreWordsSet, store.knownWordsSet][settingStore.ignoreSimpleWord ? 0 : 1]
+    //忽略列表：内置简单词（可在设置里选择是否跳过）
+    const ignoreSet = store.getIgnoreWordsSet()
     const perDay = dict.perDayStudyNumber
     const start = isTest ? 1 : dict.lastLearnIndex
     const complete = isTest ? true : dict.complete

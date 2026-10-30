@@ -629,7 +629,6 @@ defineRender(() => {
                     onClick={() => editable && editWord(val.item)}
                     index={val.index}
                     showCollectIcon={false}
-                    showMarkIcon={false}
                     excludeDictId={runtimeStore.editDict.id}
                     item={val.item}
                   >

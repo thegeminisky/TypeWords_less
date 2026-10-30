@@ -51,7 +51,7 @@ function checkRiskKey(origin: object, target: object) {
 function normalizeStoredDict(val: any): Dict {
   const next = { ...(val ?? {}) }
   // 历史数据升级：系统虚拟词典补 system: true（无论旧存档是否有此字段）
-  const systemIds = [DictId.wordCollect, DictId.wordWrong, DictId.wordKnown]
+  const systemIds = [DictId.wordCollect]
   if (systemIds.includes(next.enName ?? next.id)) {
     next.system = true
   }
@@ -65,6 +65,31 @@ function normalizeStoredDict(val: any): Dict {
     next.length = next.words.length
   }
   return getDefaultDict(checkRiskKey(getDefaultDict(), next))
+}
+
+/** 已经下线的两个虚拟词典「错词 / 已掌握」，历史存档里需要清掉 */
+const LEGACY_VIRTUAL_DICT_IDS = [DictId.wordWrong, DictId.wordKnown]
+
+/**
+ * 清掉历史存档里的「错词 / 已掌握」虚拟词典，并修正 studyIndex。
+ * 老用户存档里这两个词典是有数据的，不做迁移的话会一直留在词典列表里删不掉。
+ */
+function stripLegacyVirtualDicts(state: BaseState): boolean {
+  const list = state?.word?.bookList
+  if (!Array.isArray(list) || !list.length) return false
+  const current = list[state.word.studyIndex]
+  const next = list.filter(dict => !LEGACY_VIRTUAL_DICT_IDS.includes(normalizeDictId(dict?.enName || dict?.id) as any))
+  if (next.length === list.length) return false
+
+  state.word.bookList = next
+  if (!current) return true
+  if (LEGACY_VIRTUAL_DICT_IDS.includes(normalizeDictId(current.enName || current.id) as any)) {
+    state.word.studyIndex = -1
+    return true
+  }
+  const nextIndex = next.findIndex(dict => isSameDictResource(dict, current))
+  state.word.studyIndex = nextIndex
+  return true
 }
 
 export async function checkAndUpgradeSaveDict(val: any) {
@@ -101,6 +126,7 @@ export async function checkAndUpgradeSaveDict(val: any) {
       if (version === SAVE_DICT_KEY.version) {
         checkRiskKey(defaultState, state)
         defaultState.word.bookList = defaultState.word.bookList.map(v => normalizeStoredDict(v))
+        stripLegacyVirtualDicts(defaultState)
         return defaultState
       } else {
         // 版本不匹配时，尽量保留数据而不是直接返回默认状态
@@ -111,6 +137,7 @@ export async function checkAndUpgradeSaveDict(val: any) {
           if (state.word && state.word.bookList && Array.isArray(state.word.bookList)) {
             defaultState.word.bookList = state.word.bookList.map((v: any) => normalizeStoredDict(v))
           }
+          stripLegacyVirtualDicts(defaultState)
           return defaultState
         } catch (upgradeError) {
           let currentHash2 = '词典数据升级失败-自动备份'
@@ -666,7 +693,7 @@ export function isSameDictResource(a?: DictIdentity | null, b?: DictIdentity | n
 
 /** @deprecated 优先使用 dict.system 字段判断，仅作兼容 fallback */
 export function isBuiltinDictId(id: unknown): boolean {
-  return [DictId.wordKnown, DictId.wordWrong, DictId.wordCollect].includes(normalizeDictId(id) as any)
+  return [DictId.wordCollect].includes(normalizeDictId(id) as any)
 }
 
 export function ensureCustomDictCopy(dict: Dict): Dict {

@@ -4,7 +4,7 @@ import { BackIcon, BaseButton, Checkbox, Toast } from '@/base'
 import { reactive, ref, watch } from 'vue'
 import Header from '@/components/Header.vue'
 
-type PaintMode = 'know' | 'unknown' | 'mastered'
+type PaintMode = 'know' | 'unknown'
 
 const props = defineProps<{
   words: Word[]
@@ -13,7 +13,6 @@ const props = defineProps<{
 export type WordMarkPickResult = {
   know: Word[]
   unknown: Word[]
-  mastered: Word[]
 }
 
 const emit = defineEmits<{
@@ -29,7 +28,6 @@ const chooseAllMode = ref<PaintMode | null>(null)
 const modeLabels: Record<PaintMode, string> = {
   know: '我认识',
   unknown: '不认识',
-  mastered: '已掌握',
 }
 
 /** 与当前顶部模式同色则取消标记，否则设为当前模式。 */
@@ -48,34 +46,19 @@ function rowClass(index: number) {
   return {
     know: 'mark-know',
     unknown: 'mark-unknown',
-    mastered: 'mark-mastered',
   }[m]
 }
 
-function buildUnknownList(): Word[] {
-  const usedKnow = props.words.some((_, i) => marks[i] === 'know')
-  const usedMastered = props.words.some((_, i) => marks[i] === 'mastered')
-  const usedUnknown = props.words.some((_, i) => marks[i] === 'unknown')
-
-  const branchSimple = !usedUnknown && !(usedKnow && usedMastered)
-
-  return props.words.filter((_, i) => {
-    const m = marks[i]
-    if (branchSimple) return m == null
-    return m == null || m === 'unknown'
-  })
-}
-
-function buildThreeLists(): WordMarkPickResult {
+/** 未标记的单词一律归入「不认识」，标为「我认识」的才排除 */
+function buildMarkResult(): WordMarkPickResult {
   return {
     know: props.words.filter((_, i) => marks[i] === 'know'),
-    unknown: buildUnknownList(),
-    mastered: props.words.filter((_, i) => marks[i] === 'mastered'),
+    unknown: props.words.filter((_, i) => marks[i] !== 'know'),
   }
 }
 
 function onComplete() {
-  emit('complete', buildThreeLists())
+  emit('complete', buildMarkResult())
 }
 
 function resetChooseAll() {
@@ -121,7 +104,7 @@ watch(paintMode, resetChooseAll)
       <div class="flex items-center gap-2">
         <div>当前标记:</div>
         <button
-          v-for="mode in ['know', 'unknown', 'mastered'] as const"
+          v-for="mode in ['know', 'unknown'] as const"
           :key="mode"
           type="button"
           class="mode-btn"
@@ -183,11 +166,6 @@ watch(paintMode, resetChooseAll)
     border-color: rgba(239, 68, 68, 0.35);
     color: #b91c1c;
   }
-  &.mastered.active {
-    background: rgba(59, 130, 246, 0.14);
-    border-color: rgba(59, 130, 246, 0.35);
-    color: #1d4ed8;
-  }
 }
 
 .word-grid {
@@ -240,13 +218,6 @@ watch(paintMode, resetChooseAll)
   border-color: rgba(239, 68, 68, 0.35);
   .word-text {
     color: #b91c1c;
-  }
-}
-.word-chip.mark-mastered {
-  background: rgba(59, 130, 246, 0.14);
-  border-color: rgba(59, 130, 246, 0.35);
-  .word-text {
-    color: #1d4ed8;
   }
 }
 .word-chip.mark-none {

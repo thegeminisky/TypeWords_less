@@ -60,10 +60,6 @@ const simpleWords = $computed({
       <Switch v-model="settingStore.showBtnSkip" />
     </SettingItem>
 
-    <SettingItem title="标熟（标记已掌握）">
-      <Switch v-model="settingStore.showBtnMarkMastered" />
-    </SettingItem>
-
     <SettingItem title="添加笔记">
       <Switch v-model="settingStore.showBtnNote" />
     </SettingItem>

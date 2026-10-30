@@ -89,11 +89,6 @@ function select(i: number) {
     playCorrect()
   } else {
     playBeep()
-    let temp = q.candidates[q.correctIndex].word.word.toLowerCase()
-    if (!base.wrong.words.find((v: Word) => v.word.toLowerCase() === temp)) {
-      base.wrong.words.push(q.candidates[q.correctIndex].word)
-      base.wrong.length = base.wrong.words.length
-    }
   }
 }
 

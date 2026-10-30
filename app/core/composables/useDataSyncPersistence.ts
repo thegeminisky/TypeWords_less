@@ -91,7 +91,8 @@ async function persistLocalState(type: remote.SyncType, val: unknown, updated_at
 
 function applyDictData(store: ReturnType<typeof useBaseStore>, data: unknown) {
   store.setState(data as any)
-  if (store.word.studyIndex >= 3) {
+  // studyIndex 有效且当前不是系统词典（收藏）时，才需要按需补拉官方词典词表
+  if (store.word.studyIndex >= 0 && !store.sdict.system) {
     if (!store.sdict.custom && !store.sdict.system && !store.sdict.words.length) {
       _getDictDataByUrl(store.sdict).then(r => {
         store.word.bookList[store.word.studyIndex] = r

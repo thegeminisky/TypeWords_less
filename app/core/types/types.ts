@@ -128,7 +128,7 @@ export interface Dict extends DictResource {
   words: Word[]
   statistics: Statistics[]
   custom: boolean //是否是自定义词典
-  system?: boolean //是否是系统虚拟词典（收藏/错词/已掌握/文章收藏），可编辑词条但不能改名，不显示tag
+  system?: boolean //是否是系统虚拟词典（目前只剩「收藏」），可编辑词条但不能改名，不显示tag
   sourceId?: string //如果是官方资源副本，这里记录原始官方资源 id
   complete: boolean //是否学习完成，学完了设为true，然后lastLearnIndex重置
   //后端字段

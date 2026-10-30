@@ -8,7 +8,6 @@ import type { TaskWords, Word } from '@/core/types/types.ts'
 import { WordPracticeMode } from '@/core/types/enum.ts'
 import { getDefaultWord } from '@/core/types/func.ts'
 import { cloneDeep, getShufflePracticeWords, shuffle } from '@/core/utils'
-import { useWordOptions } from '@/core/hooks/dict.ts'
 import { useGetGradeByWrongTimes, useNextCard } from '@/core/hooks/fsrs.ts'
 import { flushStatToStore } from '@/core/composables/usePracticePersistence.ts'
 import {
@@ -38,7 +37,6 @@ export interface PracticeWordSessionOptions {
 
 export interface PracticeWordMarkPickResult {
   know: Word[]
-  mastered: Word[]
   unknown: Word[]
 }
 
@@ -53,10 +51,8 @@ export function usePracticeWordSession(options: PracticeWordSessionOptions) {
   const statStore = usePracticeStore()
   const settingStore = useSettingStore()
   const runtimeStore = useRuntimeStore()
-  const { isWordSimple, toggleWordSimple } = useWordOptions()
   const { getGradeByWrongTimes } = useGetGradeByWrongTimes()
   const { nextCard } = useNextCard()
-  let identifyTypingWrongIndex = -1
   const getPracticeMode = () => options.getPracticeMode?.() ?? settingStore.wordPracticeMode
 
   const currentWord = computed(() => {
@@ -77,7 +73,7 @@ export function usePracticeWordSession(options: PracticeWordSessionOptions) {
     checkWordIsNeedNext(word) {
       if (!word.word) return false
       const data = options.getPracticeData()
-      return isWordSimple(word) || data.excludeWords.includes(word.word)
+      return data.excludeWords.includes(word.word)
     },
     complete: options.complete,
     notify: options.notify,
@@ -89,10 +85,6 @@ export function usePracticeWordSession(options: PracticeWordSessionOptions) {
   function updateQuestion() {
     const data = options.getPracticeData()
     data.question = resolvePracticeQuestion(currentPracticeType.value, currentWord.value, options.getAllWords())
-  }
-
-  function resetCurrentWordState() {
-    identifyTypingWrongIndex = -1
   }
 
   function restorePracticeSession(cache: Pick<PracticeWordCache, 'sessionSnapshot'>): boolean {
@@ -159,19 +151,13 @@ export function usePracticeWordSession(options: PracticeWordSessionOptions) {
     if (key && !data.excludeWords.includes(key)) data.excludeWords.push(key)
   }
 
-  function onTypeWrong(source?: 'identifyTyping') {
+  function onTypeWrong() {
     const data = options.getPracticeData()
     const word = currentWord.value
     if (!word.word) return
 
     data.wrongTimes++
     addWrongWordKey(data.allWrongWords, word.word)
-    const storedWrongIndex = store.wrong.words.findIndex(item => item.word === word.word)
-    if (storedWrongIndex < 0) {
-      store.wrong.words.push(word)
-      if (source === 'identifyTyping') identifyTypingWrongIndex = store.wrong.words.length - 1
-      store.wrong.length = store.wrong.words.length
-    }
     if (!data.wrongWords.some(item => item.word === word.word)) data.wrongWords.push(word)
     const excludeIndex = data.excludeWords.findIndex(key => key === word.word)
     if (excludeIndex >= 0) data.excludeWords.splice(excludeIndex, 1)
@@ -189,35 +175,11 @@ export function usePracticeWordSession(options: PracticeWordSessionOptions) {
     data.allWrongWords = data.allWrongWords.filter(key => key !== word.word)
     data.wrongTimes = 0
     addExcludeWord()
-
-    if (identifyTypingWrongIndex >= 0) {
-      let storedWrongIndex = identifyTypingWrongIndex
-      if (store.wrong.words[storedWrongIndex]?.word !== word.word) {
-        storedWrongIndex = store.wrong.words.findIndex(item => item.word === word.word)
-      }
-      if (storedWrongIndex >= 0) store.wrong.words.splice(storedWrongIndex, 1)
-    }
-    store.wrong.length = store.wrong.words.length
     options.scheduleSave()
   }
 
   function onWordKnow() {
     options.getPracticeData().ratingMap[currentWord.value.word] = Rating.Good
-    resolveIdentifyCorrect()
-  }
-
-  function toggleWordSimpleForCurrent() {
-    const data = options.getPracticeData()
-    const word = currentWord.value
-    if (!isWordSimple(word)) setTimeout(() => nav.next(false))
-    toggleWordSimple(word)
-    const excludeIndex = data.excludeWords.findIndex(key => key === word.word)
-    if (excludeIndex >= 0) data.excludeWords.splice(excludeIndex, 1)
-    else data.excludeWords.push(word.word)
-  }
-
-  function onWordMastered() {
-    toggleWordSimpleForCurrent()
     resolveIdentifyCorrect()
   }
 
@@ -239,9 +201,6 @@ export function usePracticeWordSession(options: PracticeWordSessionOptions) {
       data.ratingMap[word.word] = Rating.Good
       if (!data.excludeWords.includes(word.word)) data.excludeWords.push(word.word)
     })
-    result.mastered.forEach(word => {
-      if (!data.excludeWords.includes(word.word)) data.excludeWords.push(word.word)
-    })
     data.wrongWords = cloneDeep(result.unknown)
     result.unknown.forEach(word => {
       addWrongWordKey(data.allWrongWords, word.word)
@@ -253,7 +212,7 @@ export function usePracticeWordSession(options: PracticeWordSessionOptions) {
   function updateCompletedDictProgress(ignoreScope: 'remaining' | 'all') {
     if (getPracticeMode() === WordPracticeMode.Shuffle) return
     store.sdict.lastLearnIndex += statStore.newWordNumber
-    const ignoreList = [store.allIgnoreWords, store.knownWords][settingStore.ignoreSimpleWord ? 0 : 1]
+    const ignoreList = Array.from(store.getIgnoreWordsSet())
     const wordsToCheck = ignoreScope === 'remaining'
       ? store.sdict.words.slice(store.sdict.lastLearnIndex)
       : store.sdict.words
@@ -283,7 +242,7 @@ export function usePracticeWordSession(options: PracticeWordSessionOptions) {
 
   function createRepeatTask(): TaskWords {
     const taskWords = cloneDeep(options.getTaskWords())
-    const ignoreSet = [store.allIgnoreWordsSet, store.knownWordsSet][settingStore.ignoreSimpleWord ? 0 : 1]
+    const ignoreSet = store.getIgnoreWordsSet()
     if (getPracticeMode() === WordPracticeMode.Shuffle) {
       taskWords.review = shuffle(taskWords.review.filter(word => !ignoreSet.has(word.word)))
     } else {
@@ -329,13 +288,10 @@ export function usePracticeWordSession(options: PracticeWordSessionOptions) {
     ...display,
     reconcilePracticeTimer,
     updateQuestion,
-    resetCurrentWordState,
     applyPracticeCache,
     initializeTask,
     onTypeWrong,
     onWordKnow,
-    onWordMastered,
-    toggleWordSimpleForCurrent,
     skip,
     randomWrite,
     onWordMarkPickComplete,

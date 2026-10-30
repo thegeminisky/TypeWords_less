@@ -70,7 +70,6 @@ export interface SettingState {
   showBtnCollect: boolean // 收藏单词
   showBtnCollectToDict: boolean // 收藏到自建词典
   showBtnSkip: boolean // 跳过当前单词
-  showBtnMarkMastered: boolean // 标记已掌握
   showBtnNote: boolean // 添加笔记
   showBtnNextGroup: boolean // 下一组
   showBtnRandomWrite: boolean // 随机默写
@@ -153,7 +152,6 @@ export const getDefaultSettingState = (): SettingState => ({
   showBtnCollect: false,
   showBtnCollectToDict: false,
   showBtnSkip: false,
-  showBtnMarkMastered: false,
   showBtnNote: false,
   showBtnNextGroup: false,
   showBtnRandomWrite: false,

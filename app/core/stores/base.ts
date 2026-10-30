@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { type Dict, getDefaultDict, type SaveData, type Word } from '../types'
+import { type Dict, getDefaultDict, type SaveData } from '../types'
 import { _getStudyProgress, checkAndUpgradeSaveDict, isSameDictResource, parseJsonStr } from '../utils'
 import { shallowReactive } from 'vue'
 import { get } from 'idb-keyval'
@@ -67,17 +67,7 @@ export const getDefaultBaseState = (): BaseState => ({
   ],
   load: false,
   word: {
-    bookList: [
-      getDefaultDict({ id: DictId.wordCollect, enName: DictId.wordCollect, name: '收藏', system: true }),
-      getDefaultDict({ id: DictId.wordWrong, enName: DictId.wordWrong, name: '错词', system: true }),
-      getDefaultDict({
-        id: DictId.wordKnown,
-        enName: DictId.wordKnown,
-        name: '已掌握',
-        description: '已掌握后的单词不会出现在练习中',
-        system: true,
-      }),
-    ],
+    bookList: [getDefaultDict({ id: DictId.wordCollect, enName: DictId.wordCollect, name: '收藏', system: true })],
     studyIndex: -1,
   },
   dictListVersion: 1,
@@ -95,27 +85,22 @@ export const useBaseStore = defineStore('base', {
       let res = this.word.bookList.find(v => [v.enName, v.id].includes(DictId.wordCollect))
       return res ?? getDefaultDict()
     },
-    wrong(): Dict {
-      let res = this.word.bookList.find(v => [v.enName, v.id].includes(DictId.wordWrong))
-      return res ?? getDefaultDict()
+    /**
+     * 系统词典（只剩「收藏」）在 bookList 里排在最前面，
+     * 改名 / 删除 / 管理等操作只对它们之后的词典开放。
+     */
+    systemDictCount(): number {
+      return this.word.bookList.filter(v => v.system).length
     },
-    known(): Dict {
-      let res = this.word.bookList.find(v => [v.enName, v.id].includes(DictId.wordKnown))
-      return res ?? getDefaultDict()
-    },
-    knownWords(): string[] {
-      return this.known.words.map((v: Word) => v.word.toLowerCase())
-    },
+    /**
+     * 忽略词（练习时跳过）。
+     * 「错词」「已掌握」两个虚拟词典已移除，这里只剩内置简单词白名单。
+     */
     allIgnoreWords(): string[] {
-      return this.known.words
-        .map((v: Word) => v.word.toLowerCase())
-        .concat(this.simpleWords.map((v: string) => v.toLowerCase()))
-    },
-    knownWordsSet(): Set<string> {
-      return new Set<string>(this.known.words.map((v: Word) => v.word))
+      return this.simpleWords.map((v: string) => v.toLowerCase())
     },
     allIgnoreWordsSet(): Set<string> {
-      return new Set<string>(this.known.words.map((v: Word) => v.word).concat(this.simpleWords.map((v: string) => v)))
+      return new Set<string>(this.allIgnoreWords)
     },
     sdict(): Dict {
       if (this.word.studyIndex >= 0) {
@@ -140,7 +125,7 @@ export const useBaseStore = defineStore('base', {
   actions: {
     getIgnoreWordsSet(): Set<string> {
       let settingStore = useSettingStore()
-      return [this.allIgnoreWordsSet, this.knownWordsSet][settingStore.ignoreSimpleWord ? 0 : 1]
+      return settingStore.ignoreSimpleWord ? this.allIgnoreWordsSet : new Set<string>()
     },
     setState(obj: BaseState) {
       obj.word.bookList.map(book => {
@@ -177,7 +162,8 @@ export const useBaseStore = defineStore('base', {
     //改变词典
     async changeDict(val: Dict) {
       //把其他的词典的单词数据都删掉，全保存在内存里太卡了
-      this.word.bookList.slice(3).map(v => {
+      //下标 0 是系统词典「收藏」，需要保留单词
+      this.word.bookList.slice(1).map(v => {
         if (!v.custom) {
           v.words = shallowReactive([])
         }

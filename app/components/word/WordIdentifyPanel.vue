@@ -3,7 +3,7 @@
  * WordIdentifyPanel — 自测 / WordTest UI
  *
  * 从 TypeWord 拆出，负责：
- * - 自评三按钮（认识/不认识/已掌握）+ 快捷键绑定
+ * - 自评两按钮（认识/不认识）+ 快捷键绑定
  * - WordTest 四选项选择 + 快捷键绑定
  * - 选择结果展示
  */
@@ -29,7 +29,6 @@ const props = withDefaults(defineProps<IProps>(), {
 
 const emit = defineEmits<{
   know: []
-  mastered: []
   unknown: []
   correct: []
   wrong: []
@@ -43,10 +42,6 @@ let selectIndex = $ref(-1)
 
 function know() {
   emit('know')
-}
-
-function mastered() {
-  emit('mastered')
 }
 
 function unknown() {
@@ -69,7 +64,6 @@ function select(e: KeyboardEvent | MouseEvent, index: number) {
 useEvents([
   [ShortcutKey.KnowWord, know],
   [ShortcutKey.UnknownWord, unknown],
-  [ShortcutKey.MasteredWord, mastered],
 ])
 useEventsByWatch(
   [
@@ -91,9 +85,9 @@ useEventsByWatch(
             <li>直接拼写：直接输入单词；开始输入后，该词会自动标记为 <span class="font-bold">“不认识”</span></li>
             <li>
               快速标记：{{
-                `${$t('shortcut')}(${settingStore.shortcutKeyMap[ShortcutKey.KnowWord]}/${settingStore.shortcutKeyMap[ShortcutKey.UnknownWord]}/${settingStore.shortcutKeyMap[ShortcutKey.MasteredWord]})`
+                `${$t('shortcut')}(${settingStore.shortcutKeyMap[ShortcutKey.KnowWord]}/${settingStore.shortcutKeyMap[ShortcutKey.UnknownWord]})`
               }}
-              分别标记为“我认识 / 不认识 / 已掌握
+              分别标记为“我认识 / 不认识
             </li>
             <li>
               选择答案：按{{
@@ -120,12 +114,6 @@ useEventsByWatch(
       size="large"
       @click="unknown"
       >{{ $t('i_dont_know') }}
-    </BaseButton>
-    <BaseButton
-      :keyboard="`${$t('shortcut')}(${settingStore.shortcutKeyMap[ShortcutKey.MasteredWord]})`"
-      size="large"
-      @click="mastered"
-      >已掌握
     </BaseButton>
 
     <div class="flex gap-2 center absolute! right-0">

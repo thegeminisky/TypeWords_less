@@ -3,7 +3,6 @@ import { BaseButton, InputNumber, Slider, Toast } from '@/base'
 import { computed, defineAsyncComponent, watch } from 'vue'
 import { useBaseStore } from '@/core/stores/base.ts'
 import { WordPracticeModeNameMap } from '@/core/config/env'
-import { useSettingStore } from '@/core/stores/setting.ts'
 import { getShufflePracticeWords, toShufflePracticeRange, type ShufflePracticeSetting } from '@/core/utils'
 const Dialog = defineAsyncComponent(() => import('@/base/dialog/Dialog.vue'))
 
@@ -18,7 +17,6 @@ const props = defineProps<{
 let wordPracticeMode = $computed(() => WordPracticeModeNameMap[props.wordPracticeMode])
 
 const store = useBaseStore()
-const settingStore = useSettingStore()
 const model = defineModel()
 
 let num = $ref(0)
@@ -144,7 +142,7 @@ function getSetting(total = num): ShufflePracticeSetting {
 }
 
 function getSelection(total = num) {
-  const ignoreSet = [store.allIgnoreWordsSet, store.knownWordsSet][settingStore.ignoreSimpleWord ? 0 : 1]
+  const ignoreSet = store.getIgnoreWordsSet()
   return getShufflePracticeWords(store.sdict.words, getSetting(total), ignoreSet)
 }
 

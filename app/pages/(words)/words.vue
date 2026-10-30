@@ -134,7 +134,7 @@ const reviewWordLimit = $computed(() => {
 const reviewWordTip = $computed(() => {
   const dailyGoal = store.sdict.perDayStudyNumber
   const actualCount = practiceData?.taskWords?.review?.length ?? 0
-  const rule = `复习词来自记忆曲线中今天及以前到期的已学单词，并会排除本组新词、已掌握词和已忽略词。“${effectiveReviewRatio} 倍”只决定数量上限：每日新词目标 ${dailyGoal} × ${effectiveReviewRatio}，本组最多安排 ${reviewWordLimit} 个。\n`
+  const rule = `复习词来自记忆曲线中今天及以前到期的已学单词，并会排除本组新词和已忽略词。“${effectiveReviewRatio} 倍”只决定数量上限：每日新词目标 ${dailyGoal} × ${effectiveReviewRatio}，本组最多安排 ${reviewWordLimit} 个。\n`
 
   if (isSaveData) {
     return `${rule}当前是已生成的未完成任务，共安排 ${actualCount} 个复习词；\n实际数量取决于任务生成时符合条件的到期词，不会用未到期词补足。`
@@ -216,7 +216,8 @@ async function init() {
   document.addEventListener('visibilitychange', onvisibilitychange)
 
   let studyIndex = store.word.studyIndex
-  if (studyIndex >= 3) {
+  // 只有官方词典需要按需补拉词表；系统词典（收藏）与自建词典都自带 words
+  if (studyIndex >= 0 && !store.sdict.system) {
     if (!store.sdict.custom && !store.sdict.words.length) {
       let dictList = await fetch(resourceWrap(DICT_LIST.WORD.ALL)).then(r => r.json())
       let dict = await _getDictDataByUrl(store.sdict)
@@ -804,7 +805,7 @@ onUnmounted(() => {
 
           <div
             class="color-link cursor-pointer"
-            v-if="store.word.bookList.length > 3"
+            v-if="store.word.bookList.length > store.systemDictCount"
             @click="
               () => {
                 isManageDict = !isManageDict
@@ -825,11 +826,11 @@ onUnmounted(() => {
           :class="{ 'dict-row--checked': selectIds.includes(item.id) }"
           v-for="(item, j) in store.word.bookList"
           :key="item.id"
-          @click="isManageDict && j >= 3 ? toggleSelect(item) : goDictDetail(item)"
+          @click="isManageDict && j >= store.systemDictCount ? toggleSelect(item) : goDictDetail(item)"
         >
           <div class="flex items-center gap-3 min-w-0">
             <Checkbox
-              v-if="isManageDict && j >= 3"
+              v-if="isManageDict && j >= store.systemDictCount"
               :model-value="selectIds.includes(item.id)"
               @click.stop
               @change="toggleSelect(item)"

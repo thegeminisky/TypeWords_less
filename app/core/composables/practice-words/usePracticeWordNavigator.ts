@@ -254,7 +254,7 @@ export function createPracticeWordNavigator(deps: NavigatorDeps) {
   function runStepAdvance(): boolean {
     const data = deps.getPracticeData()
     const taskWords = deps.getTaskWords()
-    // onEnd/错词清空期间仍可能新增已掌握或主动跳过词，推进前再收敛一次。
+    // onEnd/错词清空期间仍可能新增排除词或主动跳过词，推进前再收敛一次。
     filterWorkingWords()
 
     // 空 Node/Step 在游标层迭代跳过，不能调用 next() 伪造“完成了一个空单词”。
@@ -426,7 +426,7 @@ export function createPracticeWordNavigator(deps: NavigatorDeps) {
     }
 
     // ── 情形 3：普通主步骤词表练完 → 更新 Node 输出并进入 onEnd 队列 ──
-    // 普通 Step 只移除已掌握/主动跳过词；Identify 中认识的词也已进入排除列表，
+    // 普通 Step 只移除排除词/主动跳过词；Identify 中认识的词也已进入排除列表，
     // 因而自测 Step 的输出自然只剩 unknown/答错词。错词清空期间不会改写这份输出。
     filterWorkingWords()
     if (ownerPhase.onEnd.length > 0) {
@@ -450,7 +450,7 @@ export function createPracticeWordNavigator(deps: NavigatorDeps) {
     let countAsTyping = isTyping
     let shouldIgnoreLoop = ignoreLoop
 
-    // 已掌握/主动跳过的连续单词在同一推进循环内消费，避免递归造成深栈和重复进入。
+    // 已排除/主动跳过的连续单词在同一推进循环内消费，避免递归造成深栈和重复进入。
     while (true) {
       const data = deps.getPracticeData()
       const word = deps.getCurrentWord()

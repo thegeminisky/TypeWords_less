@@ -14,7 +14,6 @@ const props = withDefaults(
     showTransPop?: boolean
     showOption?: boolean
     showCollectIcon?: boolean
-    showMarkIcon?: boolean
     index?: number
     active?: boolean
     disabled?: boolean
@@ -26,7 +25,6 @@ const props = withDefaults(
     showTransPop: true,
     showOption: true,
     showCollectIcon: true,
-    showMarkIcon: true,
     active: false,
     disabled: false,
   }
@@ -34,7 +32,7 @@ const props = withDefaults(
 
 const playWordAudio = usePlayWordAudio()
 
-const { isWordCollect, toggleWordCollect, isWordSimple, toggleWordSimple } = useWordOptions()
+const { isWordCollect, toggleWordCollect } = useWordOptions()
 
 function openCollectPicker(e: MouseEvent) {
   openWordCollectPicker(props.item, e.currentTarget as HTMLElement, {
@@ -67,16 +65,6 @@ function openCollectPicker(e: MouseEvent) {
       >
         <IconFluentStar16Regular v-if="!isWordCollect(item)" />
         <IconFluentStar16Filled v-else />
-      </BaseIcon>
-
-      <BaseIcon
-        v-if="showMarkIcon"
-        :class="!isWordSimple(item) ? 'collect' : 'fill'"
-        @click.stop="toggleWordSimple(item)"
-        :title="!isWordSimple(item) ? $t('mark_mastered') : $t('unmark_mastered')"
-      >
-        <IconFluentCheckmarkCircle16Regular v-if="!isWordSimple(item)" />
-        <IconFluentCheckmarkCircle16Filled v-else />
       </BaseIcon>
     </div>
   </div>

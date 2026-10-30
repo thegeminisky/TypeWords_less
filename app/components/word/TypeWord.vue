@@ -57,9 +57,7 @@ const emit = defineEmits<{
   complete: []
   wrong: [source?: 'identifyTyping']
   know: []
-  mastered: []
   skip: []
-  toggleSimple: []
   quickMark: []
 }>()
 
@@ -230,10 +228,6 @@ function onIdentifyUnknown() {
   }
 }
 
-function onIdentifyMastered() {
-  emit('mastered')
-}
-
 // ============ 重置：单词切换时 reset identify / note 状态 ============
 
 watch([() => props.word, () => props.phaseKey], onResetWord)
@@ -254,9 +248,9 @@ function onResetWord() {
   if (wordWrapRef.value) wordWrapRef.value.style.minWidth = 'unset'
 }
 
-// ============ 收藏 / 简词 ============
+// ============ 收藏 ============
 
-const { isWordCollect, toggleWordCollect, isWordSimple, toggleWordSimple } = useWordOptions()
+const { isWordCollect, toggleWordCollect } = useWordOptions()
 const collectAnchorRef = ref<HTMLElement | null>(null)
 
 function openCollectPicker(e: MouseEvent) {
@@ -269,7 +263,6 @@ function openCollectPicker(e: MouseEvent) {
 // 功能栏按钮全部由「通用设置 → 练习页按钮」控制，默认全关
 const showActionRow = $computed(
   () =>
-    settingStore.showBtnMarkMastered ||
     settingStore.showBtnNote ||
     settingStore.showBtnCollect ||
     settingStore.showBtnCollectToDict ||
@@ -280,7 +273,6 @@ const showActionRow = $computed(
 
 const showLeftGroup = $computed(
   () =>
-    settingStore.showBtnMarkMastered ||
     settingStore.showBtnNote ||
     settingStore.showBtnCollect ||
     settingStore.showBtnCollectToDict ||
@@ -292,7 +284,6 @@ const showModeGroup = $computed(
 )
 
 const isCollect = $computed(() => isWordCollect(props.word))
-const isSimple = $computed(() => isWordSimple(props.word))
 const showNote = $computed(() => {
   if (editingNote) return true
   if (store.noteData[props.word.word]?.trim()) {
@@ -372,17 +363,6 @@ useEvents([
 
       <!-- 操作按钮行（默认隐藏，可在「通用设置 → 练习页按钮」里逐项开启） -->
       <div class="mt-1 flex gap-4" v-if="showActionRow">
-        <BaseIcon
-          v-if="settingStore.showBtnMarkMastered"
-          @click="emit('toggleSimple')"
-          :title="
-            (!isSimple ? $t('mark_mastered') : $t('unmark_mastered')) +
-            `(${settingStore.shortcutKeyMap[ShortcutKey.ToggleSimple]})`
-          "
-        >
-          <IconFluentCheckmarkCircle16Regular v-if="!isSimple" />
-          <IconFluentCheckmarkCircle16Filled v-else />
-        </BaseIcon>
         <BaseIcon v-if="settingStore.showBtnNote" @click="editNote" :title="editingNote ? '完成编辑笔记' : '编辑笔记'">
           <IconFluentClipboardTextEdit20Regular />
         </BaseIcon>
@@ -466,7 +446,6 @@ useEvents([
         :question="question"
         @know="onIdentifyKnow"
         @unknown="onIdentifyUnknown"
-        @mastered="onIdentifyMastered"
         @wrong="onAnswerWrong"
         @correct="onAnswerCorrect"
         @complete="emit('complete')"

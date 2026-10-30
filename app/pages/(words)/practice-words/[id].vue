@@ -119,7 +119,6 @@ watch([() => data.words, () => data.index, currentPracticeType], () => {
 })
 
 watch([() => word.word, currentPhaseKey], async ([currentWord], [previousWord]) => {
-  session.resetCurrentWordState()
   if (!currentWord || currentWord === previousWord) return
   await nextTick()
   window.scrollTo({ top: 0, behavior: 'auto' })
@@ -512,7 +511,6 @@ useEvents([
   [ShortcutKey.Previous, nav.prev],
   [ShortcutKey.Next, throttle(() => nav.next(false), 300)],
   [ShortcutKey.Ignore, throttle(session.skip, 300)],
-  [ShortcutKey.ToggleSimple, session.toggleWordSimpleForCurrent],
   [ShortcutKey.RepeatChapter, repeat],
   [ShortcutKey.NextChapter, continueStudy],
   [ShortcutKey.ToggleShowTranslate, toggleTranslate],
@@ -564,11 +562,9 @@ useEvents([
             :phaseKey="currentPhaseKey"
             @complete="nav.next"
             @wrong="session.onTypeWrong"
-            @mastered="session.onWordMastered"
             @know="session.onWordKnow"
             @skip="session.skip"
             @quickMark="isQuickMarkWordList = true"
-            @toggle-simple="session.toggleWordSimpleForCurrent"
           />
         </div>
       </div>
