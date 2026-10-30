@@ -272,10 +272,10 @@ async function loadDict() {
     let dict_list = await r.json()
     if (!dict) dict = dict_list.flat().find(v => v.id === dictId) as Dict
     if (dict && dict.id) {
-      //官方词典从静态资源取词表，自建词典/收藏从服务端 words/<id>.json 取
+      //官方词典从静态资源取词表；自建词典的词表留在服务端，
+      //当次学习量由 initData 里的 createStudyTask 向服务端取
       if (!dict.custom) dict = await _getDictDataByUrl(dict)
-      else await ensureWords(dict)
-      if (!dict.words.length) {
+      if (!dict.custom && !dict.words.length) {
         router.push('/words')
         return Toast.warning('没有单词可学习！')
       }
@@ -306,7 +306,7 @@ async function initData(initVal?: TaskWords, init: boolean = false) {
       }
     }
     if (!d) {
-      initData(createStudyTask().taskWords)
+      initData((await createStudyTask()).taskWords)
       return
     }
     if (!session.applyPracticeCache(d)) {
@@ -329,7 +329,8 @@ async function initData(initVal?: TaskWords, init: boolean = false) {
   let d = store.word.bookList.find(v => v.id === dictId)
   if (!d) d = store.sdict
   if (!d?.id) return router.push('/words')
-  allWords = shuffle(d.words)
+  // 词表按当次学习量下发，干扰项池就是本次要学的这些词
+  allWords = shuffle((data.words.length ? data.words : d.words).slice())
   session.updateQuestion()
 
   startTimer()
@@ -488,7 +489,7 @@ async function repeat() {
 async function continueStudy() {
   const previousWord = word
   wordPersistence.clear()
-  const temp = session.createNextTask(isComplete)
+  const temp = await session.createNextTask(isComplete)
   if (!temp.new.length && !temp.review.length) {
     Toast.warning('当前没有可学习的单词')
     return

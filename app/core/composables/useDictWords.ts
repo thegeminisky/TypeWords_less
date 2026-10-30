@@ -2,6 +2,7 @@ import type { Dict, Word } from '@/core/types/types.ts'
 import { useBaseStore } from '@/core/stores/base.ts'
 import { delDictWordsLocal, getDictWordsLocal, setDictWordsLocal } from '@/core/utils/cache'
 import * as remote from '@/core/utils/remote'
+import { Toast } from '@/base'
 
 /**
  * 词典词表的按需加载 / 回写。
@@ -69,6 +70,10 @@ export function useDictWords() {
     if (cached?.words?.length) {
       dict.words = cached.words as Word[]
       return dict
+    }
+    // 词表没拿到就等于没法学：明确告知，别让用户对着 0 词的词典发呆
+    if ((dict.length ?? 0) > 0) {
+      Toast.warning('词表拉取失败，请检查网络后重试')
     }
     return dict
   }

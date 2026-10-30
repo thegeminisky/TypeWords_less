@@ -15,7 +15,8 @@ import { useRuntimeStore } from '@/core/stores/runtime.ts'
 import { getDefaultDict, getDefaultWord } from '@/core/types/func.ts'
 import type { Dict, Word, WordSubContent } from '@/core/types/types.ts'
 import { useNav } from '@/core/utils'
-import { markDictWordsDirty, useDictWords } from '@/core/composables/useDictWords.ts'
+import { useDictWords } from '@/core/composables/useDictWords.ts'
+import { mergeDictWords } from '@/core/utils/remote.ts'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -33,6 +34,8 @@ const fileRef = ref<HTMLInputElement>()
 const fileName = ref('')
 const parsing = ref(false)
 const importing = ref(false)
+const addedCount = ref(0)
+const serverSkipped = ref(0)
 
 const preview = ref<{ total: number; valid: number; invalid: number; words: Word[] } | null>(null)
 const result = ref<{ added: number; skipped: number; failed: string[] } | null>(null)
@@ -165,22 +168,21 @@ async function doImport() {
     }
 
     if (added.length) {
-      // 克隆词典配置（保留 id/名称/学习进度），仅替换 words；走 bookList 让全局同步接管持久化
-      const next: Dict = getDefaultDict(target.value)
-      next.words = [...target.value.words, ...added]
-      next.length = next.words.length
-      const idx = base.word.bookList.findIndex(v => v.id === next.id)
-      if (idx > -1) base.word.bookList[idx] = next
-      else base.word.bookList.push(next)
-      // 词表单独同步：标记待上传，下一次存档前推到服务端
-      markDictWordsDirty(next.id)
-      // 同步到当前编辑上下文，供「查看词典」直接打开
-      runtimeStore.editDict = next
+      // 词表在服务端：直接合并（服务端去重），客户端不必持有整份词表
+      const merged = await mergeDictWords(String(target.value.id), added, skipDuplicate.value)
+      const idx = base.word.bookList.findIndex(v => v.id === target.value.id)
+      if (idx > -1) {
+        base.word.bookList[idx].length = merged?.total ?? base.word.bookList[idx].length
+        base.word.bookList[idx].words = []
+      }
+      runtimeStore.editDict = getDefaultDict(base.word.bookList[idx] ?? target.value)
+      addedCount.value = merged?.added ?? added.length
+      serverSkipped.value = merged?.skipped ?? 0
     }
 
     failedSamples.value = failed.slice(0, 20)
-    result.value = { added: added.length, skipped, failed: [] }
-    if (added.length) Toast.success(`导入完成：新增 ${added.length} 个单词`)
+    result.value = { added: addedCount.value, skipped, failed: [] }
+    if (addedCount.value) Toast.success(`导入完成：新增 ${addedCount.value} 个单词`)
     else Toast.warning('没有可导入的新单词')
   } finally {
     importing.value = false

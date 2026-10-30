@@ -19,7 +19,7 @@ import PracticeSettingDialog from '@/components/word/PracticeSettingDialog.vue'
 import WordItem from '@/components/word/WordItem.vue'
 import { flushStatToStore, usePracticeWordPersistence } from '@/core/composables/usePracticePersistence'
 import { DICT_LIST, LIB_JS_URL, TourConfig } from '@/core/config/env.ts'
-import { getCurrentStudyWord } from '@/core/hooks/dict.ts'
+import { createStudyTask } from '@/core/composables/practice-words/study-task.ts'
 import { useBaseStore } from '@/core/stores/base.ts'
 import { useRuntimeStore } from '@/core/stores/runtime.ts'
 import { useSettingStore } from '@/core/stores/setting.ts'
@@ -39,6 +39,7 @@ import {
   useNav,
 } from '@/core/utils'
 import { getPracticeWordCacheLocal } from '@/core/utils/cache.ts'
+import { fetchDictWords } from '@/core/utils/remote.ts'
 import { markDictWordsDirty, useDictWords } from '@/core/composables/useDictWords.ts'
 import saveAs from 'file-saver'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
@@ -386,12 +387,15 @@ async function startPractice(query = {}) {
     complete: store.sdict.complete,
     wordPracticeMode: settingStore.wordPracticeMode,
   })
-  let currentStudy = getCurrentStudyWord()
+  // 当次学习量由服务端生成
+  const { taskWords: currentStudy } = await createStudyTask()
   nav('practice-words/' + store.sdict.id, query, { taskWords: currentStudy })
 }
 
 async function addMyStudyList() {
-  if (!runtimeStore.editDict.words.length) {
+  // 自建/系统词典的词表在服务端，用元数据长度判断
+  const wordCount = runtimeStore.editDict.words.length || Number(runtimeStore.editDict.length) || 0
+  if (!wordCount) {
     return Toast.warning('没有单词可学习！')
   }
   showPracticeSettingDialog = true
@@ -546,8 +550,16 @@ async function requestList({ pageNo, pageSize, searchKey }) {
     }
     return getLocalList({ pageNo, pageSize, searchKey })
   } else {
-    // 自定义词典
-    allList = dict.words
+    // 自建词典：管理页需要整份词表（编辑/排序/导出），打开时拉一次（gzip 传输）
+    if (!allList.length) {
+      loading = true
+      try {
+        const res = await fetchDictWords(String(dict.id))
+        allList = (res?.words ?? []) as Word[]
+      } finally {
+        loading = false
+      }
+    }
     return getLocalList({ pageNo, pageSize, searchKey })
   }
 }

@@ -20,6 +20,7 @@ import { resolvePracticeQuestion } from './practice-question.ts'
 import { normalizePracticeTimer } from './usePracticeIdleTimer.ts'
 import { createPracticeWordNavigator } from './usePracticeWordNavigator.ts'
 import { usePracticeDisplayPolicy } from './usePracticeDisplayPolicy.ts'
+import * as remote from '@/core/utils/remote.ts'
 import type { PracticeNotifier } from './practice-flow-types.ts'
 import { createStudyTask } from './study-task.ts'
 
@@ -212,12 +213,9 @@ export function usePracticeWordSession(options: PracticeWordSessionOptions) {
   function updateCompletedDictProgress(ignoreScope: 'remaining' | 'all') {
     if (getPracticeMode() === WordPracticeMode.Shuffle) return
     store.sdict.lastLearnIndex += statStore.newWordNumber
-    const ignoreList = Array.from(store.getIgnoreWordsSet())
-    const wordsToCheck = ignoreScope === 'remaining'
-      ? store.sdict.words.slice(store.sdict.lastLearnIndex)
-      : store.sdict.words
-    const ignoreCount = ignoreList.filter(key => wordsToCheck.some(word => word.word === key)).length
-    if (store.sdict.lastLearnIndex + ignoreCount >= store.sdict.length) {
+    // 词表在服务端，本地数不到「剩余全是忽略词」的情况，
+    // 学到最后一个词即视为完成
+    if (store.sdict.lastLearnIndex >= store.sdict.length) {
       store.sdict.complete = true
       store.sdict.lastLearnIndex = store.sdict.length
     }
@@ -253,28 +251,28 @@ export function usePracticeWordSession(options: PracticeWordSessionOptions) {
     return taskWords
   }
 
-  function createNextTask(wasComplete: boolean): TaskWords {
+  async function createNextTask(wasComplete: boolean): Promise<TaskWords> {
     if (getPracticeMode() === WordPracticeMode.Shuffle) {
-      return {
-        new: [],
-        review: getShufflePracticeWords(
-          store.sdict.words,
-          {
-            total: runtimeStore.routeData?.total ?? options.getTaskWords().review.length,
-            range: runtimeStore.routeData?.shuffleRange ?? { start: 0, end: store.sdict.lastLearnIndex },
-          },
-          store.getIgnoreWordsSet()
-        ).words,
-      }
+      // 乱序模式：区间选词交给服务端，客户端只拿当次要练的词
+      const range = runtimeStore.routeData?.shuffleRange ?? { start: 0, end: store.sdict.lastLearnIndex }
+      const total = runtimeStore.routeData?.total ?? options.getTaskWords().review.length
+      const res = await remote.fetchStudyPlan({
+        id: String(store.sdict.id),
+        start: store.sdict.lastLearnIndex,
+        count: 0,
+        ignore: Array.from(store.getIgnoreWordsSet()),
+        shuffle: { start: range.start, end: range.end, count: total },
+      })
+      return { new: [], review: (res?.shuffleWords ?? []) as Word[] }
     }
 
     if (!wasComplete) updateCompletedDictProgress('all')
-    return createStudyTask().taskWords
+    return (await createStudyTask()).taskWords
   }
 
-  function createTaskFromGroup(group: number): TaskWords {
+  async function createTaskFromGroup(group: number): Promise<TaskWords> {
     store.sdict.lastLearnIndex = (group - 1) * store.sdict.perDayStudyNumber
-    return createStudyTask().taskWords
+    return (await createStudyTask()).taskWords
   }
 
   return {

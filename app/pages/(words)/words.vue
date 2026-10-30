@@ -62,12 +62,13 @@ import dayjs from 'dayjs'
 import { getActiveCustomFlowId, getUserFlow } from '@/core/composables/practice-words/practice-flow-runtime.ts'
 import { createStudyTask } from '@/core/composables/practice-words/study-task.ts'
 import { useDictWords } from '@/core/composables/useDictWords.ts'
+import * as remote from '@/core/utils/remote.ts'
 
 const store = useBaseStore()
 const settingStore = useSettingStore()
 const wordPersistence = usePracticeWordPersistence()
 const dataSync = useDataSyncPersistence()
-const { ensureWords, dropWords } = useDictWords()
+const { dropWords } = useDictWords()
 const router = useRouter()
 const { nav } = useNav()
 const runtimeStore = useRuntimeStore()
@@ -105,16 +106,16 @@ let practiceData = $ref<PracticeWordCache>({
 } as any)
 let dueReviewCount = $ref(0)
 
-function refreshStudyTask() {
-  const result = createStudyTask()
+async function refreshStudyTask() {
+  const result = await createStudyTask()
   practiceData.taskWords = result.taskWords
   dueReviewCount = result.dueReviewCount
   return result
 }
 
-function toggleAutoAddRandomReview(enabled: boolean) {
+async function toggleAutoAddRandomReview(enabled: boolean) {
   settingStore.autoAddRandomReviewWhenNoDue = enabled
-  const result = refreshStudyTask()
+  const result = await refreshStudyTask()
   if (!enabled) return
   if (result.randomReviewCount > 0) {
     Toast.success(`已将 ${result.randomReviewCount} 个随机复习词加入本次学习`)
@@ -247,18 +248,14 @@ async function init() {
     }
   }
 
-  // 词表不随同步行下发：先把当前词典的词表补齐，再算今日任务
-  if (store.sdict?.id && !store.sdict.words.length) {
-    await ensureWords(store.sdict)
-  }
-
-  if (!practiceData?.taskWords.new.length && store.sdict.words.length) {
+  // 今日任务由服务端按当次学习量生成；已有进行中的缓存则恢复
+  if (!practiceData?.taskWords.new.length && store.sdict.id) {
     const d = await loadPracticeCache()
     if (d) {
       practiceData = d
       isSaveData = true
     } else if (!unsupportedCacheVersion) {
-      refreshStudyTask()
+      await refreshStudyTask()
     }
   }
   loading = false
@@ -286,7 +283,9 @@ async function startPractice(practiceMode: WordPracticeMode, resetCache: boolean
   }
 
   if (store.sdict.id) {
-    if (!store.sdict.words.length) {
+    // 自建/系统词典的词表在服务端，当次学习量由服务端下发，本地不再要求整份词表；
+    // 官方词典的静态词表已在 init() 里加载
+    if (!store.sdict.custom && !store.sdict.system && !store.sdict.words.length) {
       Toast.warning('没有单词可学习！')
       return
     }
@@ -522,15 +521,24 @@ async function onShufflePracticeSettingOk(setting: ShufflePracticeSetting) {
     wordPracticeMode: settingStore.wordPracticeMode,
   })
 
-  const result = getShufflePracticeWords(store.sdict.words, setting, store.getIgnoreWordsSet())
-  practiceData.taskWords.review = result.words
+  // 乱序复习：区间选词交给服务端，客户端只拿当次要练的词
+  const plan = await remote.fetchStudyPlan({
+    id: String(store.sdict.id),
+    start: store.sdict.lastLearnIndex,
+    count: 0,
+    ignore: Array.from(store.getIgnoreWordsSet()),
+    shuffle: { start: setting.range.start, end: setting.range.end, count: setting.total },
+  })
+  const reviewWords = (plan?.shuffleWords ?? []) as Word[]
+  practiceData.taskWords.review = reviewWords
+  practiceData.taskWords.new = []
   nav(
     WordPracticeModeUrlMap[editingWordPracticeMode] + '/' + store.sdict.id,
     {},
     {
       ...practiceData,
-      total: result.words.length,
-      shuffleRange: result.range,
+      total: reviewWords.length,
+      shuffleRange: setting.range,
     }
   )
 }

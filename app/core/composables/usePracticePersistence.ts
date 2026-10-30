@@ -82,19 +82,12 @@ function restoreWords(words: string[], wordMap: Map<string, Word>): Word[] {
   return words.map(word => wordMap.get(word)).filter((word): word is Word => !!word)
 }
 
+/** 缓存自包含：词条对象直接存，恢复不再依赖整份词典（词表已在服务端） */
 function serializePracticeWordCache(data: PracticeWordCache | null): PracticeWordCacheStored | null {
   if (!data) return null
-  const { words, wrongWords, ...practiceDataRest } = data.practiceData
   return {
-    taskWordsStr: {
-      new: data.taskWords.new.map(v => v.word),
-      review: data.taskWords.review.map(v => v.word),
-    },
-    practiceData: {
-      ...practiceDataRest,
-      wordsStr: words.map(v => v.word),
-      wrongWordsStr: wrongWords.map(v => v.word),
-    },
+    taskWords: data.taskWords,
+    practiceData: { ...data.practiceData, question: null },
     statStoreData: data.statStoreData,
   }
 }
@@ -103,7 +96,9 @@ function restorePracticeWordCache(data: PracticeWordCacheStored | null): Practic
   if (!data) return null
   if (!isCompactPracticeWordCache(data)) {
     if (!data.taskWords?.new.length && !data.taskWords?.review.length) return null
-    return data
+    if (!Array.isArray(data.practiceData?.words)) return data
+    const index = Math.min(Math.max(data.practiceData.index, 0), data.practiceData.words.length - 1)
+    return { ...data, practiceData: { ...data.practiceData, index, question: null } }
   }
   if (!data.taskWordsStr?.new.length && !data.taskWordsStr?.review.length) return null
   const wordMap = createWordMap()

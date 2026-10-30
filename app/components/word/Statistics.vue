@@ -139,7 +139,7 @@ const encouragementText = $computed(() => {
 
 <template>
   <Dialog v-model="model" :close-on-click-bg="false" :header="false" :keyboard="false" :show-close="false">
-    <div class="p-8 pr-3 bg-[var(--bg-card-primary)] min-w-130 rounded-2xl">
+    <div class="stats-panel bg-[var(--bg-card-primary)] rounded-2xl">
       <!-- Header Section -->
       <div class="text-center relative">
         <div
@@ -277,6 +277,22 @@ const encouragementText = $computed(() => {
   </Dialog>
 </template>
 <style scoped lang="scss">
+/**
+ * 结算面板宽度：
+ * - 桌面端保持原来 min-w-130（520px）的观感
+ * - 手机端 520px 会超出屏幕，本周记录/按钮都被裁掉，改为全宽自适应
+ */
+.stats-panel {
+  min-width: 520px;
+  padding: 2rem 0.75rem 2rem 2rem;
+
+  @media (max-width: 768px) {
+    min-width: 0;
+    width: calc(96vw - 1rem);
+    padding: 1.1rem 0.9rem;
+  }
+}
+
 @media (max-width: 768px) {
   .summary-main {
     flex-direction: column;
@@ -291,7 +307,7 @@ const encouragementText = $computed(() => {
   }
 
   :deep(.dialog-body) {
-    max-width: 95vw;
+    max-width: 96vw;
   }
 }
 </style>

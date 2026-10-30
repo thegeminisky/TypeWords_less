@@ -4,6 +4,7 @@ import { useBaseStore } from '../stores/base.ts'
 import { useSettingStore } from '../stores/setting.ts'
 import { cloneDeep, shuffle } from '../utils'
 import { markDictWordsDirty, useDictWords } from '../composables/useDictWords.ts'
+import * as remote from '../utils/remote.ts'
 import { DictId } from '../config/env.ts'
 import dayjs from 'dayjs'
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore'
@@ -45,6 +46,14 @@ export function useWordOptions() {
 
   async function addWordToDict(val: Word, dict: Dict): Promise<{ ok: boolean }> {
     const target = resolveDictInBookList(dict)
+    // 自建词典：词表在服务端，直接合并，不必为加一个词拉整份词表
+    if (target.custom) {
+      const res = await remote.mergeDictWords(String(target.id), [val], true)
+      if (!res?.added) return { ok: false }
+      target.length = res.total ?? target.length
+      return { ok: true }
+    }
+    // 收藏词典词表小且常驻本地
     await ensureWords(target)
     const rIndex = target.words.findIndex(v => v.word.toLowerCase() === val.word.toLowerCase())
     if (rIndex > -1) return { ok: false }

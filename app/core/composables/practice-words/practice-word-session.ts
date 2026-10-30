@@ -88,22 +88,22 @@ function restoreWords(words: unknown, wordMap: Map<string, Word>): Word[] {
     .filter((word): word is Word => !!word)
 }
 
-function serializePracticeWordCache(data: PracticeWordCache | null): PracticeWordCacheCompact | null {
+/**
+ * 练习缓存改为「自包含」：词条对象直接随缓存存取。
+ * 以前只存单词串、恢复时靠整份词典反查 —— 词表改到服务端后本地不再有全量词表，
+ * 缓存必须自带完整词条（一次会话几十个词，体积可忽略）。
+ */
+function serializePracticeWordCache(data: PracticeWordCache | null): PracticeWordCacheStored | null {
   if (!data) return null
-  const taskWordsStr = {
-    new: data.taskWords.new.map(word => word.word),
-    review: data.taskWords.review.map(word => word.word),
+  const taskWords = {
+    new: data.taskWords.new,
+    review: data.taskWords.review,
   }
-  if (!data.practiceData && !data.statStoreData && !data.sessionSnapshot) return { taskWordsStr }
+  if (!data.practiceData && !data.statStoreData && !data.sessionSnapshot) return { taskWords }
   if (!data.practiceData || !data.statStoreData || !data.sessionSnapshot) return null
-  const { words, wrongWords, ...practiceData } = data.practiceData
   return {
-    taskWordsStr,
-    practiceData: {
-      ...practiceData,
-      wordsStr: words.map(word => word.word),
-      wrongWordsStr: wrongWords.map(word => word.word),
-    },
+    taskWords,
+    practiceData: { ...data.practiceData, question: null },
     statStoreData: data.statStoreData,
     sessionSnapshot: data.sessionSnapshot,
   }
@@ -133,7 +133,19 @@ function isCurrentSnapshot(value: unknown): value is PracticeSessionSnapshot {
 }
 
 function restoreCurrentCache(value: unknown): PracticeWordCache | null {
-  if (!value || typeof value !== 'object' || !('taskWordsStr' in value)) return null
+  if (!value || typeof value !== 'object') return null
+  // 新格式：词条对象随缓存走，直接还原
+  if (!('taskWordsStr' in (value as Record<string, unknown>))) {
+    const data = value as PracticeWordCache
+    if (!Array.isArray(data.taskWords?.new) || !Array.isArray(data.taskWords?.review)) return null
+    if (!data.taskWords.new.length && !data.taskWords.review.length) return null
+    if (!data.practiceData && !data.statStoreData && !data.sessionSnapshot) return { taskWords: data.taskWords }
+    if (!data.practiceData || !data.statStoreData || !isCurrentSnapshot(data.sessionSnapshot)) return null
+    if (!Array.isArray(data.practiceData.words) || !Number.isInteger(data.practiceData.index) || data.practiceData.index < 0)
+      return null
+    return { ...data, practiceData: { ...data.practiceData, question: null } }
+  }
+  // 旧格式（v2 紧凑串）：按老逻辑尽力恢复
   const data = value as PracticeWordCacheCompact
   if (!Array.isArray(data.taskWordsStr?.new) || !Array.isArray(data.taskWordsStr?.review)) return null
   const wordMap = createWordMap()

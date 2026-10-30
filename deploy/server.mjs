@@ -10,6 +10,7 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import zlib from 'node:zlib'
 import { createReadStream } from 'node:fs'
 
 const ROOT = path.resolve(process.env.ROOT || path.join(import.meta.dirname, 'web'))
@@ -372,6 +373,13 @@ async function removeWordsFile(id) {
   await fsp.rm(`${wordsFilePath(id)}.bak`, { force: true }).catch(() => {})
 }
 
+function shuffleInPlace(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[arr[i], arr[j]] = [arr[j], arr[i]]
+  }
+}
+
 /**
  * 启动时把历史存档里内联的词典词表拆到 words/ 目录。
  * 老版本把整份词表塞在 dict 同步行里（实测 15MB），拆完同步行只剩几十 KB。
@@ -606,7 +614,22 @@ async function handleApi(req, res, url) {
       const id = url.searchParams.get('id') || ''
       if (!isSafeDictId(id)) return json(res, 400, { ok: false, error: 'BAD_ID' })
       const found = await readWordsFile(id)
-      return json(res, 200, { ok: true, words: found?.words ?? null, updated_at: found?.updated_at ?? null })
+      const body = JSON.stringify({ ok: true, words: found?.words ?? null, updated_at: found?.updated_at ?? null })
+      // 词表动辄几 MB，浏览器都支持 gzip，压完传输量降到 1/4 左右
+      const acceptsGzip = String(req.headers['accept-encoding'] || '').includes('gzip')
+      if (acceptsGzip && body.length > 1024) {
+        const gz = zlib.gzipSync(Buffer.from(body))
+        res.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Content-Encoding': 'gzip',
+          'Content-Length': gz.length,
+          'Cache-Control': 'no-store',
+          Vary: 'Accept-Encoding',
+          ...SEC_HEADERS,
+        })
+        return res.end(gz)
+      }
+      return json(res, 200, JSON.parse(body))
     }
 
     if (req.method === 'POST') {
@@ -633,6 +656,145 @@ async function handleApi(req, res, url) {
     }
 
     return json(res, 405, { ok: false, error: 'METHOD_NOT_ALLOWED' })
+  }
+
+  // 按当次学习量取词：客户端不再整份下载词表，由服务端算好本次要学的词
+  if (p === '/api/dict/words/plan' && req.method === 'POST') {
+    const ip = req.socket.remoteAddress || 'unknown'
+    if (!hitRateLimit(`dictplan:${ip}`, 120, 60 * 1000)) {
+      return json(res, 429, { ok: false, error: 'TOO_MANY_REQUESTS' })
+    }
+    let body
+    try {
+      body = await readJson(req)
+    } catch {
+      return json(res, 400, { ok: false, error: 'BAD_REQUEST' })
+    }
+    const id = String(body?.id ?? '')
+    if (!isSafeDictId(id)) return json(res, 400, { ok: false, error: 'BAD_ID' })
+    const found = await readWordsFile(id)
+    const words = found?.words ?? []
+    const ignore = new Set(Array.isArray(body?.ignore) ? body.ignore.map(String) : [])
+    const start = Math.max(0, Math.floor(Number(body?.start) || 0))
+    const count = Math.max(0, Math.floor(Number(body?.count) || 0))
+    const taken = new Set()
+
+    // 新词：从 start 往后跳过忽略词，取 count 个
+    const newWords = []
+    let skipped = 0
+    if (!body?.shuffle && !body?.test) {
+      for (let i = start; i < words.length && newWords.length < count; i++) {
+        const w = words[i]
+        if (!w || !w.word || ignore.has(w.word)) {
+          skipped++
+          continue
+        }
+        newWords.push(w)
+        taken.add(w.word)
+      }
+    }
+
+    const byWord = new Map(words.map(w => [String(w?.word ?? ''), w]))
+
+    // 复习词：客户端把 fsrs 到期的单词串发过来，服务端解析成完整词条
+    const reviewWords = []
+    const dueList = Array.isArray(body?.dueWords) ? body.dueWords.map(String) : []
+    for (const key of dueList) {
+      if (taken.has(key) || ignore.has(key)) continue
+      const w = byWord.get(key)
+      if (!w) continue
+      reviewWords.push(w)
+      taken.add(key)
+    }
+
+    // 没有到期词时的随机复习：从已学范围 [0, end) 里随机挑
+    let randomCount = 0
+    if (body?.random && Number(body.random.count) > 0) {
+      const end = Math.min(Math.max(0, Math.floor(Number(body.random.end) || 0)), words.length)
+      const pool = words.slice(0, end).filter(w => w?.word && !taken.has(w.word) && !ignore.has(w.word))
+      shuffleInPlace(pool)
+      for (const w of pool.slice(0, Math.floor(Number(body.random.count)))) {
+        reviewWords.push(w)
+        taken.add(w.word)
+        randomCount++
+      }
+    }
+
+    // 随机复习/乱序模式：在指定区间里随机挑 count 个
+    let shuffleWords = null
+    let shuffleAvailable = 0
+    if (body?.shuffle) {
+      const s = Math.max(0, Math.floor(Number(body.shuffle.start) || 0))
+      const e = Math.min(Math.max(0, Math.floor(Number(body.shuffle.end) || 0)), words.length)
+      const c = Math.max(0, Math.floor(Number(body.shuffle.count) || 0))
+      const pool = words.slice(s, e).filter(w => w?.word && !ignore.has(w.word))
+      shuffleAvailable = pool.length
+      shuffleInPlace(pool)
+      shuffleWords = pool.slice(0, c)
+    }
+
+    // 单词测试：从词典里随机抽一批作为题库与干扰项
+    let pool = null
+    if (body?.test) {
+      const c = Math.max(1, Math.floor(Number(body.test.count) || 100))
+      const from = Math.max(0, Math.floor(Number(body.test.from) || 0))
+      const to = Math.min(Math.max(0, Math.floor(Number(body.test.to) || 0)) || words.length, words.length)
+      const poolArr = words.slice(from, to).filter(w => w?.word)
+      shuffleInPlace(poolArr)
+      pool = poolArr.slice(0, c)
+    }
+
+    // 补充解析：练习缓存恢复时只有单词串，这里换回完整词条
+    const extra = Array.isArray(body?.extraWords) ? body.extraWords.map(String) : []
+    const extraWords = extra.map(key => byWord.get(key)).filter(Boolean)
+
+    return json(res, 200, {
+      ok: true,
+      newWords,
+      reviewWords,
+      randomCount,
+      shuffleWords,
+      shuffleAvailable,
+      pool,
+      extraWords,
+      length: words.length,
+      remainingNew: Math.max(0, words.length - start - skipped),
+    })
+  }
+
+  // 词表合并（导入/收藏到词典）：服务端去重后追加，客户端不必拉整份词表
+  if (p === '/api/dict/words/merge' && req.method === 'POST') {
+    const ip = req.socket.remoteAddress || 'unknown'
+    if (!hitRateLimit(`dictmerge:${ip}`, 60, 60 * 1000)) {
+      return json(res, 429, { ok: false, error: 'TOO_MANY_REQUESTS' })
+    }
+    let body
+    try {
+      body = await readJson(req)
+    } catch {
+      return json(res, 400, { ok: false, error: 'BAD_REQUEST' })
+    }
+    const id = String(body?.id ?? '')
+    const incoming = Array.isArray(body?.words) ? body.words : []
+    if (!isSafeDictId(id) || !incoming.length) return json(res, 400, { ok: false, error: 'BAD_REQUEST' })
+    const skipDuplicate = body?.skipDuplicate !== false
+    const existing = (await readWordsFile(id))?.words ?? []
+    const byWord = new Map(existing.map(w => [String(w?.word ?? '').toLowerCase(), w]))
+    const added = []
+    let skipped = 0
+    for (const w of incoming) {
+      if (!w || !w.word) continue
+      const key = String(w.word).toLowerCase()
+      if (skipDuplicate && byWord.has(key)) {
+        skipped++
+        continue
+      }
+      byWord.set(key, w)
+      added.push(w)
+    }
+    const all = existing.concat(added)
+    const updated_at = await writeWordsFile(id, all)
+    return json(res, 200, { ok: true, added: added.length, skipped, total: all.length, updated_at })
   }
 
   // 同步接口整体限速：120 次/分钟/IP

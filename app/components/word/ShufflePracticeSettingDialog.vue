@@ -3,7 +3,8 @@ import { BaseButton, InputNumber, Slider, Toast } from '@/base'
 import { computed, defineAsyncComponent, watch } from 'vue'
 import { useBaseStore } from '@/core/stores/base.ts'
 import { WordPracticeModeNameMap } from '@/core/config/env'
-import { getShufflePracticeWords, toShufflePracticeRange, type ShufflePracticeSetting } from '@/core/utils'
+import { toShufflePracticeRange, type ShufflePracticeSetting } from '@/core/utils'
+import * as remote from '@/core/utils/remote.ts'
 const Dialog = defineAsyncComponent(() => import('@/base/dialog/Dialog.vue'))
 
 const MIN_RANGE_WORD_COUNT = 5
@@ -27,7 +28,8 @@ let showInsufficientDialog = $ref(false)
 let requestedCount = $ref(0)
 let availableCount = $ref(0)
 
-const wordCount = $computed(() => store.sdict.words.length)
+// 随机复习的范围是已学部分 [0, lastLearnIndex]，词表在服务端，这里用元数据
+const wordCount = $computed(() => Math.max(Math.floor(Number(store.sdict.lastLearnIndex) || 0), 0))
 const progressNo = $computed(() => Math.min(Math.max(Number(store.sdict.lastLearnIndex) || 0, 0), wordCount))
 const displayRange = $computed(() => {
   const end = Math.min(Math.max(Math.floor(Number(endNo) || 0), 0), wordCount)
@@ -141,9 +143,17 @@ function getSetting(total = num): ShufflePracticeSetting {
   }
 }
 
-function getSelection(total = num) {
-  const ignoreSet = store.getIgnoreWordsSet()
-  return getShufflePracticeWords(store.sdict.words, getSetting(total), ignoreSet)
+/** 向服务端探测区间内可用词数量（词表在服务端，本地无法本地计算） */
+async function probeSelection(total = num) {
+  const setting = getSetting(total)
+  const res = await remote.fetchStudyPlan({
+    id: String(store.sdict.id),
+    start: store.sdict.lastLearnIndex,
+    count: 0,
+    ignore: Array.from(store.getIgnoreWordsSet()),
+    shuffle: { start: setting.range.start, end: setting.range.end, count: 0 },
+  })
+  return { available: res?.shuffleAvailable ?? 0, total }
 }
 
 async function submit(setting: ShufflePracticeSetting) {
@@ -164,7 +174,7 @@ async function confirm() {
     return false
   }
 
-  const result = getSelection()
+  const result = await probeSelection()
   if (!result.available) {
     Toast.warning('当前区间筛选后没有可用单词，请调整区间或忽略规则')
     return false

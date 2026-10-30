@@ -4,6 +4,7 @@ import { BaseButton, BaseIcon, BasePage, Toast, VolumeIcon } from '@/base'
 import { useRoute, useRouter } from 'vue-router'
 import { useBaseStore } from '@/core/stores/base.ts'
 import { useDictWords } from '@/core/composables/useDictWords.ts'
+import { fetchStudyPlan } from '@/core/utils/remote.ts'
 import type { Dict, Question, TaskWords, Word } from '@/core/types/types.ts'
 import { _getDictDataByUrl, shuffle, useNav } from '@/core/utils'
 import { useRuntimeStore } from '@/core/stores/runtime.ts'
@@ -53,11 +54,22 @@ async function init() {
   if (!d?.id) return router.push('/words')
   if (!d.words.length && runtimeStore.editDict?.id === d.id) {
     loading = true
-    // 官方词典走静态资源；自建词典 / 收藏走服务端词表
+    // 官方词典走静态资源；自建词典 / 收藏的词表在服务端，
+    // 这里只要一批随机词（题库 + 干扰项），不整份下载
     d = d.custom || d.system ? await ensureWords(d) : await _getDictDataByUrl(runtimeStore.editDict)
     loading = false
   }
   dict = d
+  if (dict.custom || dict.system) {
+    // 服务端随机抽 100 个作为题库与干扰项池
+    const plan = await fetchStudyPlan({
+      id: String(dict.id),
+      start: 0,
+      count: 0,
+      test: { count: 100, from: 0, to: Number(dict.length) || 0 },
+    })
+    if (plan?.pool?.length) dict = { ...dict, words: plan.pool as Word[] }
+  }
   if (!dict.words.length) {
     return Toast.warning('没有单词可测试！')
   }

@@ -173,7 +173,10 @@ export type DictWordsResult = {
 }
 
 export async function fetchDictWords(id: string): Promise<DictWordsResult> {
-  return request<DictWordsResult>(`/api/dict/words?id=${encodeURIComponent(id)}`)
+  // 词表可能有好几 MB（服务端已 gzip），给足下载时间
+  return request<DictWordsResult>(`/api/dict/words?id=${encodeURIComponent(id)}`, {
+    timeout: UPLOAD_TIMEOUT,
+  })
 }
 
 export async function pushDictWords(
@@ -194,5 +197,61 @@ export async function deleteDictWords(id: string): Promise<void> {
   } catch (error) {
     console.warn('[dict-words] 远端词表删除失败', error)
   }
+}
+
+export type StudyPlanParams = {
+  id: string
+  /** 从词典第几个词开始取新词（lastLearnIndex） */
+  start: number
+  /** 当次新词数量（perDayStudyNumber） */
+  count: number
+  /** 忽略词（内置简单词白名单） */
+  ignore?: string[]
+  /** fsrs 到期的单词串，服务端解析成完整词条 */
+  dueWords?: string[]
+  /** 无到期词时的随机复习：从 [0, end) 已学范围里随机挑 count 个 */
+  randomReview?: { end: number; count: number } | null
+  /** 乱序模式：在 [start, end) 区间随机挑 count 个 */
+  shuffle?: { start: number; end: number; count: number } | null
+  /** 单词测试：从词典里随机抽 count 个作为题库 */
+  test?: { count: number; from?: number; to?: number } | null
+  /** 只做词条解析（练习缓存恢复时用），不生成任务 */
+  extraWords?: string[]
+}
+
+export type StudyPlanResult = {
+  ok: boolean
+  newWords: unknown[]
+  reviewWords: unknown[]
+  randomCount: number
+  shuffleWords: unknown[] | null
+  pool: unknown[] | null
+  extraWords: unknown[]
+  length: number
+  remainingNew: number
+}
+
+/** 向服务端要「当次学习量」：新词 + 到期复习词，客户端不再整份下载词表 */
+export async function fetchStudyPlan(params: StudyPlanParams): Promise<StudyPlanResult> {
+  return request<StudyPlanResult>('/api/dict/words/plan', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(params),
+    timeout: DEFAULT_TIMEOUT,
+  })
+}
+
+/** 词表合并（导入/加入词典）：服务端去重后追加，返回新增数量 */
+export async function mergeDictWords(
+  id: string,
+  words: unknown[],
+  skipDuplicate = true
+): Promise<{ ok: boolean; added: number; skipped: number; total: number; updated_at?: string }> {
+  return request('/api/dict/words/merge', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ id, words, skipDuplicate }),
+    timeout: UPLOAD_TIMEOUT,
+  })
 }
 
