@@ -8,11 +8,12 @@ import { useSettingStore } from '@/core/stores/setting.ts'
 import { usePracticeStore } from '@/core/stores/practice.ts'
 import dayjs from 'dayjs'
 import isBetween from 'dayjs/plugin/isBetween'
-import { defineAsyncComponent, inject, watch } from 'vue'
+import { defineAsyncComponent, inject, onUnmounted, watch } from 'vue'
 import isoWeek from 'dayjs/plugin/isoWeek'
 import { msToHourMinute } from '@/core/utils'
 import ChannelIcons from '@/components/channel-icons/ChannelIcons.vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 
 dayjs.extend(isoWeek)
 dayjs.extend(isBetween)
@@ -24,6 +25,7 @@ const props = defineProps({
 })
 const store = useBaseStore()
 const settingStore = useSettingStore()
+const router = useRouter()
 const statStore = usePracticeStore()
 const model = defineModel({ default: false })
 let list = $ref<boolean[]>([])
@@ -62,6 +64,44 @@ watch([model, () => props.loading], ([open, loading]) => {
 })
 
 const close = () => (model.value = false)
+
+/**
+ * 结算卡住时的逃生口：loading 超过 4s 就在遮罩上给一个「返回首页」按钮。
+ * 本地结算在进入 loading 之前已经写完，跳走不会丢本机记录。
+ */
+let showEscape = $ref(false)
+let escapeTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(
+  () => props.loading,
+  loading => {
+    if (escapeTimer) {
+      clearTimeout(escapeTimer)
+      escapeTimer = null
+    }
+    showEscape = false
+    if (loading) {
+      escapeTimer = setTimeout(() => {
+        showEscape = true
+        escapeTimer = null
+      }, 4000)
+    }
+  },
+  { immediate: true }
+)
+
+onUnmounted(() => {
+  if (escapeTimer) clearTimeout(escapeTimer)
+})
+
+function goHome() {
+  if (escapeTimer) {
+    clearTimeout(escapeTimer)
+    escapeTimer = null
+  }
+  model.value = false
+  router.push('/words')
+}
 
 useEvents([
   //特意注释掉，因为在练习界面用快捷键下一组时，需要判断是否在结算界面
@@ -213,7 +253,7 @@ const encouragementText = $computed(() => {
                 {{ studyProgress === 100 ? $t('start_from_beginning') : $t('another_group') }}
               </div>
             </BaseButton>
-            <BaseButton @click="$router.back">
+            <BaseButton @click="goHome">
               <div class="center gap-2">
                 <IconFluentHome20Regular />
                 {{ $t('back_to_home') }}
@@ -225,6 +265,12 @@ const encouragementText = $computed(() => {
           <IconEosIconsLoading class="text-3xl" />
           <div>结算中...</div>
           <div>请耐心等待，刷新页面可能导致数据丢失</div>
+          <BaseButton v-if="showEscape" class="mt-2" @click="goHome">
+            <div class="center gap-2">
+              <IconFluentHome20Regular />
+              返回首页
+            </div>
+          </BaseButton>
         </div>
       </div>
     </div>

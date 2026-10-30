@@ -36,11 +36,31 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    credentials: 'same-origin',
-    ...init,
-  })
+/** 普通请求超时：网络卡住（frp 隧道、蜂窝网切换）时不能让 UI 无限等待 */
+const DEFAULT_TIMEOUT = 15000
+/**
+ * 整份档案写入可能带几 MB 词典数据（自建词库的词表全量上传，实测 15MB 量级），
+ * 给足两分钟；结算界面本身不等这么久，见练习页的 SETTLE_REMOTE_TIMEOUT。
+ */
+const UPLOAD_TIMEOUT = 120000
+
+async function request<T>(path: string, init?: RequestInit & { timeout?: number }): Promise<T> {
+  const { timeout = DEFAULT_TIMEOUT, ...rest } = init ?? {}
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeout)
+  let res: Response
+  try {
+    res = await fetch(path, {
+      credentials: 'same-origin',
+      ...rest,
+      signal: controller.signal,
+    })
+  } catch (error) {
+    if ((error as Error)?.name === 'AbortError') throw new ApiError(0, 'TIMEOUT')
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
   if (res.status === 401) {
     authed = false
     throw new ApiError(401, 'UNAUTHORIZED')
@@ -137,6 +157,7 @@ export async function upsertSyncRows(rows: RemoteRow[]): Promise<boolean> {
     method: 'POST',
     headers: JSON_HEADERS,
     body: JSON.stringify({ rows }),
+    timeout: UPLOAD_TIMEOUT,
   })
   return !!res?.ok
 }

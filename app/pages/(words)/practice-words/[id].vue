@@ -48,6 +48,10 @@ const statStore = usePracticeStore()
 const dataSync = useDataSyncPersistence()
 const wordPersistence = usePracticeWordPersistence()
 const onboardingHostRef = ref<InstanceType<typeof PracticeOnboardingHost>>()
+
+/** 结算时等待远端写入的上限（毫秒）；超时只影响云同步，不影响本地记录 */
+const SETTLE_REMOTE_TIMEOUT = 12000
+
 const notifyPractice: PracticeNotifier = (level, message) => {
   Toast[level](message)
 }
@@ -362,14 +366,30 @@ async function complete() {
     try {
       session.settleLocalPractice()
 
-      try {
-        await dataSync.saveDictState(store.$state, { pullWhenRemoteNewer: false })
-      } catch (error) {
-        console.error('[practice] 远端结算同步失败', error)
-        Toast.error('本地结算已完成，远端同步失败，可稍后重试')
+      // 远端写入可能因为网络/隧道卡住而长时间不返回，这里加个上限：
+      // 本地数据在 settleLocalPractice 里已经算完，超时也不影响本机记录，
+      // 只是别让结算界面一直转圈。
+      const remoteDone = await Promise.race([
+        (async () => {
+          try {
+            await dataSync.saveDictState(store.$state, { pullWhenRemoteNewer: false })
+          } catch (error) {
+            console.error('[practice] 远端结算同步失败', error)
+            Toast.error('本地结算已完成，远端同步失败，可稍后重试')
+          }
+          try {
+            await wordPersistence.clear()
+          } catch (error) {
+            console.error('[practice] 练习缓存清理失败', error)
+          }
+          return true
+        })(),
+        new Promise<boolean>(resolve => setTimeout(() => resolve(false), SETTLE_REMOTE_TIMEOUT)),
+      ])
+      if (!remoteDone) {
+        console.warn('[practice] 结算远端同步超时，本地记录已保存')
+        Toast.warning('远端同步较慢，本地记录已保存，可以先回首页')
       }
-
-      await wordPersistence.clear()
 
       let trackData = {
         funSpend: Date.now() - start,
